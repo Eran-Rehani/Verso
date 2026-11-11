@@ -1,11 +1,13 @@
 package app.verso.core.importer
 
+import app.verso.core.markdown.MathProtector
 import app.verso.core.model.ImportError
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.util.zip.ZipInputStream
 
 object FormatDetector {
+
     fun detect(source: DocumentSource): SourceFormat {
         val bytes = source.bytes
 
@@ -29,7 +31,7 @@ object FormatDetector {
             if (name.endsWith(".epub") || source.mimeType == "application/epub+zip") {
                 return SourceFormat.Epub
             }
-            // Check first entry
+            // Check first entry with bounded 128-byte buffer
             try {
                 ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
                     val entry = zis.nextEntry
@@ -55,7 +57,12 @@ object FormatDetector {
 
         // 3. Name extensions
         val lowerName = source.name?.lowercase() ?: ""
-        if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown") || lowerName.endsWith(".mdown")) {
+        if (lowerName.endsWith(".md") ||
+            lowerName.endsWith(".markdown") ||
+            lowerName.endsWith(".mdown") ||
+            lowerName.endsWith(".tex") ||
+            lowerName.endsWith(".latex")
+        ) {
             return SourceFormat.Markdown
         }
         if (lowerName.endsWith(".html") || lowerName.endsWith(".htm") || lowerName.endsWith(".xhtml")) {
@@ -73,7 +80,12 @@ object FormatDetector {
 
         // 4. MIME type
         val mime = source.mimeType?.lowercase() ?: ""
-        if (mime == "text/markdown" || mime == "text/x-markdown") {
+        if (mime == "text/markdown" ||
+            mime == "text/x-markdown" ||
+            mime == "text/x-tex" ||
+            mime == "application/x-tex" ||
+            mime == "application/x-latex"
+        ) {
             return SourceFormat.Markdown
         }
         if (mime == "text/html") {
@@ -97,20 +109,29 @@ object FormatDetector {
             return SourceFormat.Html
         }
 
-        // Check strong Markdown signals
-        val hasHeading = Regex("(?m)^#{1,6}\\s+\\S").containsMatchIn(sample)
+        // Check strong Markdown & LaTeX signals
+        val hasHeading = HEADING_REGEX.containsMatchIn(sample)
         val hasFence = sample.contains("```")
-        val hasTable = Regex("(?m)^\\|[-:| ]+\\|$").containsMatchIn(sample)
-        val hasDisplayMath = sample.contains("$$")
-        val hasBold = Regex("\\*\\*[^*\\n]+\\*\\*").containsMatchIn(sample)
-        val hasLink = Regex("\\[[^\\]\\n]+\\]\\(https?://[^)\\n]+\\)").containsMatchIn(sample)
+        val hasTable = TABLE_REGEX.containsMatchIn(sample)
+        val hasDisplayMath = sample.contains("$$") || sample.contains("\\[") || sample.contains("\\begin{")
+        val hasLatexSection = LATEX_SECTION_REGEX.containsMatchIn(sample)
+        val hasInlineMath = MathProtector.protect(sample).math.isNotEmpty()
+        val hasBold = BOLD_REGEX.containsMatchIn(sample)
+        val hasLink = LINK_REGEX.containsMatchIn(sample)
 
-        val listMatches = Regex("(?m)^\\s*([-*+]|\\d+\\.)\\s+\\S").findAll(sample).count()
+        val listMatches = LIST_REGEX.findAll(sample).take(2).count()
 
-        if (hasHeading || hasFence || hasTable || hasDisplayMath || hasBold || hasLink || listMatches >= 2) {
+        if (hasHeading || hasFence || hasTable || hasDisplayMath || hasLatexSection || hasInlineMath || hasBold || hasLink || listMatches >= 2) {
             return SourceFormat.Markdown
         }
 
         return SourceFormat.PlainText
     }
+
+    private val HEADING_REGEX = Regex("(?m)^#{1,6}\\s+\\S")
+    private val TABLE_REGEX = Regex("(?m)^\\|[-:| ]+\\|$")
+    private val LATEX_SECTION_REGEX = Regex("(?m)^\\s*\\\\(?:section|subsection|chapter)\\*?\\{")
+    private val BOLD_REGEX = Regex("\\*\\*[^*\\n]+\\*\\*")
+    private val LINK_REGEX = Regex("\\[[^\\]\\n]+\\]\\(https?://[^)\\n]+\\)")
+    private val LIST_REGEX = Regex("(?m)^\\s*([-*+]|\\d+\\.)\\s+\\S")
 }

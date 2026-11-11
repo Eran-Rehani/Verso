@@ -1,11 +1,30 @@
 package app.verso.core.markdown
 
+import app.verso.core.model.InlineText
+import app.verso.core.model.Span
+import app.verso.core.model.SpanKind
+
 object MathProtector {
     const val OPEN = '\uE000'
     const val CLOSE = '\uE001'
 
     data class MathSpan(val latex: String, val display: Boolean)
     data class Result(val text: String, val math: List<MathSpan>)
+
+    private val DISPLAY_ENVS = setOf(
+        "equation", "equation*",
+        "align", "align*", "aligned",
+        "gather", "gather*", "gathered",
+        "multline", "multline*",
+        "eqnarray", "eqnarray*",
+        "displaymath",
+        "matrix", "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix",
+        "cases", "dcases", "split"
+    )
+
+    private val INLINE_ENVS = setOf(
+        "math"
+    )
 
     fun protect(markdown: String): Result {
         val mathList = mutableListOf<MathSpan>()
@@ -25,6 +44,31 @@ object MathProtector {
                 j--
             }
             return true
+        }
+
+        fun appendDisplayPlaceholder(ph: String, isLineStart: Boolean, afterCloseIdx: Int): Int {
+            var afterClose = afterCloseIdx
+            while (afterClose < len && (markdown[afterClose] == ' ' || markdown[afterClose] == '\t')) afterClose++
+            val isLineEnd = afterClose >= len || markdown[afterClose] == '\n' || markdown[afterClose] == '\r'
+
+            if (isLineStart && isLineEnd) {
+                if (!sb.endsWith("\n\n") && sb.isNotEmpty()) {
+                    if (sb.endsWith("\n")) sb.append("\n") else sb.append("\n\n")
+                }
+                sb.append(ph)
+                if (afterClose < len) {
+                    if (markdown.startsWith("\r\n", afterClose)) {
+                        afterClose += 2
+                    } else if (markdown[afterClose] == '\n' || markdown[afterClose] == '\r') {
+                        afterClose++
+                    }
+                }
+                sb.append("\n\n")
+                return afterClose
+            } else {
+                sb.append(ph)
+                return afterCloseIdx
+            }
         }
 
         while (i < len) {
@@ -53,7 +97,7 @@ object MathProtector {
                 continue
             }
 
-            // Check for escaped char
+            // Check for escaped char or LaTeX delimiter/environment
             if (markdown[i] == '\\' && i + 1 < len) {
                 val next = markdown[i + 1]
                 if (next == '$') {
@@ -68,9 +112,9 @@ object MathProtector {
                     if (closeIdx != -1) {
                         val content = markdown.substring(i + 2, closeIdx).trim()
                         val ph = "$OPEN${mathList.size}$CLOSE"
+                        val isLineStart = atLineStart()
                         mathList.add(MathSpan(content, display = true))
-                        sb.append(ph)
-                        i = closeIdx + 2
+                        i = appendDisplayPlaceholder(ph, isLineStart, closeIdx + 2)
                         continue
                     }
                 }
@@ -84,6 +128,37 @@ object MathProtector {
                         sb.append(ph)
                         i = closeIdx + 2
                         continue
+                    }
+                }
+                // Check \begin{env} ... \end{env}
+                if (markdown.startsWith("\\begin{", i)) {
+                    val envCloseBrace = markdown.indexOf('}', i + 7)
+                    if (envCloseBrace != -1) {
+                        val envName = markdown.substring(i + 7, envCloseBrace).trim()
+                        if (envName in DISPLAY_ENVS || envName in INLINE_ENVS) {
+                            val endTag = "\\end{$envName}"
+                            val endIdx = markdown.indexOf(endTag, envCloseBrace + 1)
+                            if (endIdx != -1) {
+                                val isDisplay = envName in DISPLAY_ENVS
+                                val innerBody = markdown.substring(envCloseBrace + 1, endIdx).trim()
+                                // Preserve matrix/cases/align wrapper so LatexParser knows the environment type
+                                val fullLatex = if (envName in setOf("equation", "equation*", "displaymath", "math")) {
+                                    innerBody
+                                } else {
+                                    "\\begin{$envName}$innerBody\\end{$envName}"
+                                }
+                                val ph = "$OPEN${mathList.size}$CLOSE"
+                                val isLineStart = atLineStart()
+                                mathList.add(MathSpan(fullLatex, display = isDisplay))
+                                i = if (isDisplay) {
+                                    appendDisplayPlaceholder(ph, isLineStart, endIdx + endTag.length)
+                                } else {
+                                    sb.append(ph)
+                                    endIdx + endTag.length
+                                }
+                                continue
+                            }
+                        }
                     }
                 }
                 sb.append('\\')
@@ -114,32 +189,9 @@ object MathProtector {
                 if (closeIdx != -1) {
                     val content = markdown.substring(i + 2, closeIdx).trim()
                     val ph = "$OPEN${mathList.size}$CLOSE"
-                    mathList.add(MathSpan(content, display = true))
-
-                    // If display math is on its own line:
                     val isLineStart = atLineStart()
-                    var afterClose = closeIdx + 2
-                    while (afterClose < len && (markdown[afterClose] == ' ' || markdown[afterClose] == '\t')) afterClose++
-                    val isLineEnd = afterClose >= len || markdown[afterClose] == '\n' || markdown[afterClose] == '\r'
-
-                    if (isLineStart && isLineEnd) {
-                        if (!sb.endsWith("\n\n") && sb.isNotEmpty()) {
-                            if (sb.endsWith("\n")) sb.append("\n") else sb.append("\n\n")
-                        }
-                        sb.append(ph)
-                        if (afterClose < len) {
-                            if (markdown.startsWith("\r\n", afterClose)) {
-                                afterClose += 2
-                            } else if (markdown[afterClose] == '\n' || markdown[afterClose] == '\r') {
-                                afterClose++
-                            }
-                        }
-                        sb.append("\n\n")
-                        i = afterClose
-                    } else {
-                        sb.append(ph)
-                        i = closeIdx + 2
-                    }
+                    mathList.add(MathSpan(content, display = true))
+                    i = appendDisplayPlaceholder(ph, isLineStart, closeIdx + 2)
                     continue
                 }
             }
@@ -187,5 +239,59 @@ object MathProtector {
         }
 
         return Result(sb.toString(), mathList)
+    }
+
+    fun expandPlaceholders(
+        text: String,
+        existingSpans: List<Span>,
+        mathList: List<MathSpan>
+    ): InlineText {
+        if (!text.contains(OPEN)) {
+            return InlineText(text, existingSpans)
+        }
+
+        val sb = StringBuilder()
+        val indexMap = IntArray(text.length + 1)
+        val mathSpans = mutableListOf<Span>()
+        var i = 0
+
+        while (i < text.length) {
+            indexMap[i] = sb.length
+            if (text[i] == OPEN) {
+                val closePos = text.indexOf(CLOSE, i + 1)
+                if (closePos != -1) {
+                    val numStr = text.substring(i + 1, closePos)
+                    val idx = numStr.toIntOrNull()
+                    if (idx != null && idx in mathList.indices) {
+                        val mathContent = mathList[idx].latex
+                        val start = sb.length
+                        sb.append(mathContent)
+                        val end = sb.length
+                        mathSpans.add(Span(start, end, SpanKind.Math))
+                        for (k in i until closePos + 1) {
+                            indexMap[k] = start
+                        }
+                        i = closePos + 1
+                        continue
+                    }
+                }
+            }
+            sb.append(text[i])
+            i++
+        }
+        indexMap[text.length] = sb.length
+
+        val newText = sb.toString()
+        val finalSpans = mutableListOf<Span>()
+        for (span in existingSpans) {
+            val s = indexMap[span.start.coerceIn(0, text.length)]
+            val e = indexMap[span.end.coerceIn(0, text.length)]
+            if (e > s) {
+                finalSpans.add(Span(s, e, span.kind, span.href))
+            }
+        }
+        finalSpans.addAll(mathSpans)
+
+        return InlineText(newText, finalSpans)
     }
 }

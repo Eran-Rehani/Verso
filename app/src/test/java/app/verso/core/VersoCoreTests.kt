@@ -308,4 +308,187 @@ class VersoCoreTests {
         val noMatch = books.filter { it.title.contains("NonExistent", ignoreCase = true) }
         assertTrue(noMatch.isEmpty())
     }
+
+    @Test
+    fun `latex parser builds structured AST for fractions roots limits and matrices`() {
+        val parsed = app.verso.core.latex.LatexParser.parseEquation(
+            """x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a} \tag{1.1}"""
+        )
+        assertEquals("1.1", parsed.tag)
+        val rootRow = parsed.root as app.verso.core.latex.MathNode.Row
+        assertTrue(rootRow.children.any { it is app.verso.core.latex.MathNode.Fraction })
+
+        val matrixNode = app.verso.core.latex.LatexParser.parse(
+            """\begin{pmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{pmatrix}"""
+        ) as app.verso.core.latex.MathNode.Matrix
+        assertEquals(app.verso.core.latex.MatrixEnvType.PAREN, matrixNode.envType)
+        assertEquals(2, matrixNode.rows.size)
+        assertEquals(2, matrixNode.rows[0].size)
+
+        val readable = app.verso.core.latex.LatexParser.toReadablePlainText("""\nabla^2 \psi + \mathbb{R} = 0""")
+        assertTrue(readable.contains("∇²"))
+        assertTrue(readable.contains("ψ"))
+        assertTrue(readable.contains("ℝ"))
+    }
+
+    @Test
+    fun `markdown extractor handles latex environments and section macros`() {
+        val texMd = """
+            \section{Quantum Mechanics}
+            The wave function $\psi(x)$ satisfies:
+            \begin{equation}
+            \hat{H}\psi = E\psi
+            \end{equation}
+            \subsection{Spin Matrices}
+        """.trimIndent()
+        val doc = MarkdownExtractor.extract(texMd)
+        val headings = doc.blocks.filterIsInstance<Heading>()
+        assertEquals(2, headings.size)
+        assertEquals("Quantum Mechanics", headings[0].text.text)
+        assertEquals(1, headings[0].level)
+        assertEquals("Spin Matrices", headings[1].text.text)
+        assertEquals(2, headings[1].level)
+        assertTrue(doc.blocks.any { it is MathBlock && it.latex.contains("\\hat{H}\\psi = E\\psi") })
+    }
+
+    @Test
+    fun `toc extractor builds hierarchical entries and formats inline math in headings`() {
+        val md = """
+            # Chapter 1: Introduction
+            Introductory paragraph.
+            ## 1.1 The Wave Equation $\nabla^2 u = 0$
+            Second paragraph.
+            ### 1.1.1 Boundary Conditions
+            Third paragraph.
+            # Chapter 2: Applications
+            Final paragraph.
+        """.trimIndent()
+        val doc = MarkdownExtractor.extract(md)
+        val toc = app.verso.core.toc.TocExtractor.extract(doc)
+        assertEquals(4, toc.size)
+        assertEquals("Chapter 1: Introduction", toc[0].title)
+        assertEquals(1, toc[0].level)
+        assertTrue(toc[1].title.contains("∇²"))
+        assertEquals(2, toc[1].level)
+        assertEquals(3, toc[2].level)
+        assertEquals(1, toc[3].level)
+
+        // Active index and prev/next navigation
+        assertEquals(1, app.verso.core.toc.TocExtractor.activeEntryIndex(toc, toc[1].blockIndex))
+        assertEquals(toc[0], app.verso.core.toc.TocExtractor.previousEntry(toc, toc[1].blockIndex))
+        assertEquals(toc[2], app.verso.core.toc.TocExtractor.nextEntry(toc, toc[1].blockIndex))
+    }
+
+    // --- Task: Full-Text Document Searcher tests ---
+    @Test
+    fun `search finds keywords across headings paragraphs and code blocks`() {
+        val md = """
+            # Modern Architecture
+            In software engineering, microservices offer modular decoupling.
+            However, monoliths provide simplicity.
+            ```kotlin
+            fun startMicroservice() { println("microservice running") }
+            ```
+            ## Performance Evaluation
+            We tested microservice latency under peak traffic.
+        """.trimIndent()
+        val doc = MarkdownExtractor.extract(md)
+
+        val matches = app.verso.core.search.DocumentSearcher.search(doc, "microservice")
+        assertEquals(4, matches.size)
+
+        // Paragraph 1 match
+        assertEquals("Modern Architecture", matches[0].sectionTitle)
+        assertTrue(matches[0].snippet.contains("microservices", ignoreCase = true))
+
+        // Code block matches
+        assertEquals("Modern Architecture", matches[1].sectionTitle)
+        assertEquals("Modern Architecture", matches[2].sectionTitle)
+
+        // Section 2 paragraph match
+        assertEquals("Performance Evaluation", matches[3].sectionTitle)
+
+        // Navigation tests
+        assertEquals(1, app.verso.core.search.DocumentSearcher.nextMatchIndex(0, matches.size))
+        assertEquals(0, app.verso.core.search.DocumentSearcher.nextMatchIndex(3, matches.size))
+        assertEquals(3, app.verso.core.search.DocumentSearcher.prevMatchIndex(0, matches.size))
+        assertEquals(1, app.verso.core.search.DocumentSearcher.prevMatchIndex(2, matches.size))
+    }
+
+    @Test
+    fun `search returns empty for blank query or missing terms`() {
+        val doc = Document("Doc", listOf(Paragraph(InlineText.plain("Hello world"))))
+        assertTrue(app.verso.core.search.DocumentSearcher.search(doc, "").isEmpty())
+        assertTrue(app.verso.core.search.DocumentSearcher.search(doc, "   ").isEmpty())
+        assertTrue(app.verso.core.search.DocumentSearcher.search(doc, "quantum").isEmpty())
+    }
+
+    // --- Task: BookmarkHelper tests ---
+    @Test
+    fun `bookmark helper computes page numbers section titles and snippets`() {
+        val blocks = (0 until 12).map { idx ->
+            if (idx == 0) Heading(1, InlineText.plain("Chapter 1: Foundations"))
+            else if (idx == 6) Heading(2, InlineText.plain("1.2 Advanced Topics"))
+            else Paragraph(InlineText.plain("Paragraph content at block $idx."))
+        }
+        val doc = Document("Test Book", blocks)
+
+        val descPage1 = app.verso.core.bookmark.BookmarkHelper.describe(doc, blockIndex = 2, offsetPx = 15)
+        assertEquals(1, descPage1.pageNumber)
+        assertEquals(3, descPage1.totalPages)
+        assertEquals("Chapter 1: Foundations", descPage1.sectionTitle)
+        assertTrue(descPage1.snippet.contains("Paragraph content at block 2"))
+
+        val descPage2 = app.verso.core.bookmark.BookmarkHelper.describe(doc, blockIndex = 7, offsetPx = 0)
+        assertEquals(2, descPage2.pageNumber)
+        assertEquals(3, descPage2.totalPages)
+        assertEquals("1.2 Advanced Topics", descPage2.sectionTitle)
+        assertTrue(descPage2.snippet.contains("Paragraph content at block 7"))
+    }
+
+    @Test
+    fun `all sample documents across md tex html and txt import and extract blocks cleanly`() = kotlinx.coroutines.runBlocking {
+        val importer = DocumentImporter()
+        val samples = app.verso.reader.sample.SampleDocuments.all
+        assertEquals(5, samples.size)
+
+        // 1. Mathematical Physics Primer (.md)
+        val mathMd = importer.import(samples[0].toDocumentSource()).document
+        assertTrue(mathMd.blocks.any { it is MathBlock })
+        assertTrue(app.verso.core.toc.TocExtractor.extract(mathMd).size >= 6)
+        assertTrue(app.verso.core.search.DocumentSearcher.search(mathMd, "Gaussian").isNotEmpty())
+
+        // 2. Quantum Path Integrals (.tex)
+        val quantumTex = importer.import(samples[1].toDocumentSource()).document
+        val texToc = app.verso.core.toc.TocExtractor.extract(quantumTex)
+        assertTrue(texToc.any { it.title.contains("Feynman Path Integral") })
+        assertTrue(texToc.any { it.title.contains("Harmonic Oscillator") })
+        assertTrue(quantumTex.blocks.count { it is MathBlock } >= 4)
+
+        // 3. Algorithms & Complexity (.md with GFM table containing inline math + Kotlin code block)
+        val algoMd = importer.import(samples[2].toDocumentSource()).document
+        val table = algoMd.blocks.filterIsInstance<TableBlock>().firstOrNull()
+        assertTrue(table != null)
+        val hasInlineMathInTable = table!!.rows.flatten().any { cell ->
+            cell.spans.any { it.kind == SpanKind.Math }
+        }
+        assertTrue("Table cells should preserve inline LaTeX math spans", hasInlineMathInTable)
+        assertTrue(algoMd.blocks.any { it is CodeBlock && it.language == "kotlin" })
+        assertTrue(algoMd.blocks.any { it is Quote })
+
+        // 4. Typography for Digital Reading (.html)
+        val typoHtml = importer.import(samples[3].toDocumentSource()).document
+        assertEquals("The Craft of Digital Typography", typoHtml.title)
+        assertTrue(typoHtml.blocks.any { it is Quote })
+        assertTrue(typoHtml.blocks.any { it is ListItem })
+
+        // 5. Meditations Book IV (.txt)
+        val meditationsTxt = importer.import(samples[4].toDocumentSource()).document
+        assertTrue(meditationsTxt.blocks.size >= 5)
+        val bm = app.verso.core.bookmark.BookmarkHelper.describe(meditationsTxt, blockIndex = 1)
+        assertEquals(1, bm.pageNumber)
+        assertTrue(bm.snippet.isNotBlank())
+    }
 }
+
+

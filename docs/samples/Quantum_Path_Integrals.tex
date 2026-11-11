@@ -1,0 +1,36 @@
+\section{Feynman Path Integral Formulation}
+
+In non-relativistic quantum mechanics, the transition amplitude \(K(x_b, t_b; x_a, t_a)\) between initial position \(x_a\) and final position \(x_b\) is expressed as a functional integral over all trajectories \(x(t)\) with action \(S[x]\):
+
+\begin{equation}
+K(x_b, t_b; x_a, t_a) = \int \mathcal{D}x(t) \, \exp\left( \frac{i}{\hbar} S[x(t)] \right) \tag{1}
+\end{equation}
+
+Here the classical action functional \(S[x]\) for a particle of mass \(m\) moving in a potential \(V(x)\) is defined by:
+
+\[S[x] = \int_{t_a}^{t_b} \left( \frac{1}{2} m \dot{x}^2 - V(x) \right) dt \tag{2}\]
+
+\subsection{The Quantum Harmonic Oscillator}
+
+For the harmonic potential \(V(x) = \frac{1}{2} m \omega^2 x^2\), the Hamiltonian operator \(\hat{H}\) can be factored in terms of ladder operators \(\hat{a}\) and \(\hat{a}^\dagger\):
+
+\begin{aligned}
+\hat{a} &= \sqrt{\frac{m\omega}{2\hbar}} \left( \hat{x} + \frac{i}{m\omega} \hat{p} \right) \\
+\hat{H} &= \hbar\omega \left( \hat{a}^\dagger \hat{a} + \frac{1}{2} \right)
+\end{aligned}
+
+The discrete energy eigenvalues \(E_n\) for \(n \in \{0, 1, 2, \dots\}\) are:
+
+\[E_n = \hbar\omega \left( n + \frac{1}{2} \right) \tag{3}\]
+
+\subsection{Pauli Spin Matrices}
+
+For a spin-\(\frac{1}{2}\) system in \(\mathbb{C}^2\), the three Pauli operators \(\sigma_x, \sigma_y, \sigma_z\) are represented by the \(2 \times 2\) Hermitian matrices:
+
+\[\sigma_x = \begin{pmatrix} 0 & 1 \\ 1 & 0 \end{pmatrix}, \quad \sigma_y = \begin{pmatrix} 0 & -i \\ i & 0 \end{pmatrix}, \quad \sigma_z = \begin{pmatrix} 1 & 0 \\ 0 & -1 \end{pmatrix} \tag{4}\]
+
+\section{Semiclassical WKB Approximation}
+
+In the limit \(\hbar \to 0\), the stationary wave function \(\psi(x)\) is approximated by:
+
+\[\psi(x) \approx \frac{C}{\sqrt{p(x)}} \exp\left( \pm \frac{i}{\hbar} \int^x p(x') \, dx' \right), \quad p(x) = \sqrt{2m(E - V(x))} \tag{5}\]

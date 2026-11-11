@@ -7,7 +7,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [BookEntity::class, LibraryMigration::class], version = 2, exportSchema = true)
+@Database(
+    entities = [BookEntity::class, LibraryMigration::class, BookmarkEntity::class],
+    version = 3,
+    exportSchema = true
+)
 abstract class VersoDatabase : RoomDatabase() {
     abstract fun bookDao(): BookDao
 
@@ -25,6 +29,28 @@ abstract class VersoDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS library_migrations (name TEXT NOT NULL PRIMARY KEY, complete INTEGER NOT NULL)")
             }
         }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `bookmarks` (" +
+                        "`id` TEXT NOT NULL, " +
+                        "`bookId` TEXT NOT NULL, " +
+                        "`blockIndex` INTEGER NOT NULL, " +
+                        "`offsetPx` INTEGER NOT NULL, " +
+                        "`pageNumber` INTEGER NOT NULL, " +
+                        "`totalPages` INTEGER NOT NULL, " +
+                        "`sectionTitle` TEXT NOT NULL, " +
+                        "`snippet` TEXT NOT NULL, " +
+                        "`label` TEXT NOT NULL, " +
+                        "`progressFraction` REAL NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_bookmarks_bookId` ON `bookmarks` (`bookId`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: VersoDatabase? = null
 
@@ -34,7 +60,7 @@ abstract class VersoDatabase : RoomDatabase() {
                     context.applicationContext,
                     VersoDatabase::class.java,
                     "verso_library.db"
-                ).addMigrations(MIGRATION_1_2).build()
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
                 INSTANCE = instance
                 instance
             }

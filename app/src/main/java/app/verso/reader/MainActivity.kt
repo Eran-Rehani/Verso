@@ -1,12 +1,10 @@
 package app.verso.reader
 
-import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -30,6 +28,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,9 +43,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -62,20 +60,15 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import app.verso.core.importer.DocumentSource
 import app.verso.reader.intake.IntakeResult
 import app.verso.reader.intake.IntentParser
-import app.verso.reader.intake.SourceReader
 import app.verso.reader.ui.home.HomeScreen
 import app.verso.reader.ui.reader.ReaderPalette
 import app.verso.reader.ui.reader.ReaderScreen
 import app.verso.reader.ui.reader.paletteFor
 import app.verso.reader.ui.settings.SettingsPanel
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 open class MainActivity : ComponentActivity() {
 
@@ -96,6 +89,7 @@ open class MainActivity : ComponentActivity() {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
             val recents by viewModel.recents.collectAsStateWithLifecycle()
             val books by viewModel.books.collectAsStateWithLifecycle()
+            val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
             val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
 
             val isSystemDark = isSystemInDarkTheme()
@@ -103,6 +97,9 @@ open class MainActivity : ComponentActivity() {
 
             var chromeVisible by rememberSaveable { mutableStateOf(true) }
             var settingsOpen by rememberSaveable { mutableStateOf(false) }
+            var tocOpen by rememberSaveable { mutableStateOf(false) }
+            var searchOpen by rememberSaveable { mutableStateOf(false) }
+            var bookmarksSidebarOpen by rememberSaveable { mutableStateOf(false) }
 
             // Manage status/navigation bar appearance and keep-screen-on
             DisposableEffect(palette.isDark, chromeVisible, screen, settings.keepScreenOn) {
@@ -137,6 +134,9 @@ open class MainActivity : ComponentActivity() {
             // BackHandler logic
             BackHandler(enabled = true) {
                 when {
+                    bookmarksSidebarOpen -> bookmarksSidebarOpen = false
+                    searchOpen -> searchOpen = false
+                    tocOpen -> tocOpen = false
                     settingsOpen -> settingsOpen = false
                     screen is Screen.Reading -> viewModel.closeReader()
                     screen is Screen.Importing -> viewModel.cancelImport()
@@ -252,6 +252,12 @@ open class MainActivity : ComponentActivity() {
                                             DocumentSource.fromText(text) { context.ensureActive() }
                                         }
                                     },
+                                    onLoadSample = {
+                                        viewModel.loadSampleDocument()
+                                    },
+                                    onSelectSample = { spec ->
+                                        viewModel.loadSample(spec)
+                                    },
                                     onNavigateToLibrary = { viewModel.selectTab(MainTab.Library) },
                                     modifier = Modifier.padding(innerPadding)
                                 )
@@ -271,7 +277,11 @@ open class MainActivity : ComponentActivity() {
                     }
 
                     is Screen.Importing -> {
-                        ImportingScreen(palette = palette, phase = curScreen.phase, onCancel = viewModel::cancelImport)
+                        ImportingScreen(
+                            palette = palette,
+                            phase = curScreen.phase,
+                            onCancel = viewModel::cancelImport
+                        )
                     }
 
                     is Screen.Reading -> {
@@ -284,18 +294,73 @@ open class MainActivity : ComponentActivity() {
                                 initialOffsetPx = curScreen.anchorOffsetPx,
                                 chromeVisible = chromeVisible,
                                 onToggleChrome = {
-                                    if (settingsOpen) {
-                                        settingsOpen = false
-                                    } else {
-                                        chromeVisible = !chromeVisible
+                                    when {
+                                        bookmarksSidebarOpen -> bookmarksSidebarOpen = false
+                                        searchOpen -> {}
+                                        tocOpen -> tocOpen = false
+                                        settingsOpen -> settingsOpen = false
+                                        else -> chromeVisible = !chromeVisible
                                     }
                                 },
                                 onAnchor = { block, offset ->
                                     viewModel.onAnchor(curScreen.id, block, offset)
                                 },
-                                onBack = { viewModel.closeReader() },
+                                onBack = {
+                                    bookmarksSidebarOpen = false
+                                    searchOpen = false
+                                    tocOpen = false
+                                    settingsOpen = false
+                                    viewModel.closeReader()
+                                },
                                 onOpenSettings = {
+                                    bookmarksSidebarOpen = false
+                                    searchOpen = false
+                                    tocOpen = false
                                     settingsOpen = !settingsOpen
+                                },
+                                tocOpen = tocOpen,
+                                settingsOpen = settingsOpen,
+                                onToggleToc = {
+                                    bookmarksSidebarOpen = false
+                                    searchOpen = false
+                                    settingsOpen = false
+                                    chromeVisible = true
+                                    tocOpen = !tocOpen
+                                },
+                                onCloseToc = {
+                                    tocOpen = false
+                                },
+                                searchOpen = searchOpen,
+                                onToggleSearch = {
+                                    bookmarksSidebarOpen = false
+                                    tocOpen = false
+                                    settingsOpen = false
+                                    chromeVisible = true
+                                    searchOpen = !searchOpen
+                                },
+                                onCloseSearch = {
+                                    searchOpen = false
+                                },
+                                bookmarks = bookmarks,
+                                bookmarksSidebarOpen = bookmarksSidebarOpen,
+                                onToggleBookmark = { blockIndex, offsetPx ->
+                                    viewModel.toggleBookmark(blockIndex, offsetPx)
+                                },
+                                onDeleteBookmark = { bookmark ->
+                                    viewModel.removeBookmark(bookmark.id)
+                                },
+                                onUpdateBookmarkLabel = { bookmark, label ->
+                                    viewModel.updateBookmarkLabel(bookmark.id, label)
+                                },
+                                onToggleBookmarksSidebar = {
+                                    searchOpen = false
+                                    tocOpen = false
+                                    settingsOpen = false
+                                    chromeVisible = true
+                                    bookmarksSidebarOpen = !bookmarksSidebarOpen
+                                },
+                                onCloseBookmarksSidebar = {
+                                    bookmarksSidebarOpen = false
                                 }
                             )
 
@@ -344,12 +409,15 @@ open class MainActivity : ComponentActivity() {
             }
         }
     }
-
-
 }
 
 @Composable
-fun ImportingScreen(palette: ReaderPalette, modifier: Modifier = Modifier, phase: String = "Reading source", onCancel: () -> Unit) {
+fun ImportingScreen(
+    palette: ReaderPalette,
+    modifier: Modifier = Modifier,
+    phase: String = "Reading source",
+    onCancel: () -> Unit
+) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
@@ -371,7 +439,9 @@ fun ImportingScreen(palette: ReaderPalette, modifier: Modifier = Modifier, phase
                 color = palette.muted
             )
             Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onCancel) { Text("Cancel import") }
+            Button(onClick = onCancel) {
+                Text("Cancel import")
+            }
         }
     }
 }

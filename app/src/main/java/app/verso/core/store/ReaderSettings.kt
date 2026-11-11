@@ -1,5 +1,6 @@
 package app.verso.core.store
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import java.io.File
 import kotlin.math.roundToInt
@@ -26,6 +27,7 @@ enum class ReadAlign {
     Justify
 }
 
+@Immutable
 @Serializable
 data class ReaderSettings(
     val theme: ThemeChoice = ThemeChoice.System,

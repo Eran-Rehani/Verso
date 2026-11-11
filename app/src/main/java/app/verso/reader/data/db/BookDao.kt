@@ -44,4 +44,29 @@ interface BookDao {
 
     @Query("SELECT COUNT(*) FROM books")
     suspend fun getBookCount(): Int
+
+    // --- Bookmarks ---
+    @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY blockIndex ASC, createdAt DESC")
+    fun getBookmarksForBook(bookId: String): Flow<List<BookmarkEntity>>
+
+    @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY blockIndex ASC, createdAt DESC")
+    suspend fun getBookmarksForBookNow(bookId: String): List<BookmarkEntity>
+
+    @Query("SELECT * FROM bookmarks WHERE bookId = :bookId AND blockIndex = :blockIndex LIMIT 1")
+    suspend fun getBookmarkAtBlock(bookId: String, blockIndex: Int): BookmarkEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBookmark(bookmark: BookmarkEntity)
+
+    @Query("UPDATE bookmarks SET label = :label WHERE id = :id")
+    suspend fun updateBookmarkLabel(id: String, label: String)
+
+    @Query("DELETE FROM bookmarks WHERE id = :id")
+    suspend fun deleteBookmarkById(id: String)
+
+    @Query("DELETE FROM bookmarks WHERE bookId = :bookId AND blockIndex = :blockIndex")
+    suspend fun deleteBookmarkAtBlock(bookId: String, blockIndex: Int)
+
+    @Query("DELETE FROM bookmarks WHERE bookId = :bookId")
+    suspend fun deleteBookmarksForBook(bookId: String)
 }

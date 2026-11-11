@@ -30,7 +30,8 @@ class LibraryPersistenceTest {
     private fun database() = Room.inMemoryDatabaseBuilder(context, VersoDatabase::class.java).build()
     private val document = Document("Lecture", listOf(Paragraph(InlineText.plain("Content"))))
 
-    @Test fun twentyFiveDocumentsSurviveRepositoryRecreation() = runBlocking {
+    @Test
+    fun twentyFiveDocumentsSurviveRepositoryRecreation() = runBlocking {
         val dir = Files.createTempDirectory("verso-library").toFile()
         val name = "verso-25-${UUID.randomUUID()}.db"
         var db = Room.databaseBuilder(context, VersoDatabase::class.java, name).build()
@@ -45,10 +46,15 @@ class LibraryPersistenceTest {
             reopened.initialize()
             assertEquals(25, db.bookDao().getAllNow().size)
             ids.forEach { assertEquals(document, reopened.read(it)) }
-        } finally { db.close(); context.deleteDatabase(name); dir.deleteRecursively() }
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+            dir.deleteRecursively()
+        }
     }
 
-    @Test fun migrationPrefersValidJsonAndKeepsBackupsAndMissingRows() = runBlocking {
+    @Test
+    fun migrationPrefersValidJsonAndKeepsBackupsAndMissingRows() = runBlocking {
         val dir = Files.createTempDirectory("verso-legacy").toFile()
         val docs = File(dir, "docs").apply { mkdirs() }
         val db = database()
@@ -64,6 +70,7 @@ class LibraryPersistenceTest {
             val raw = Json.encodeToString(entries)
             File(dir, "recents.json").writeText(raw)
             db.bookDao().insertBook(BookEntity("valid", "Room title", "PlainText", 111, 222, 1, 0, 99))
+
             val repo = BookRepository(db, dir)
             repo.initialize()
             val migrated = repo.getBook("valid")!!
@@ -79,14 +86,19 @@ class LibraryPersistenceTest {
             assertEquals("{truncated", File(docs, "corrupt.json").readText())
             assertEquals(raw, File(dir, "migration-v2-backup/recents.json").readText())
             assertTrue(File(dir, "migration-v2-backup/room.json").readText().contains("Room title"))
+
             repo.updateAnchor("valid", 8, 99)
             BookRepository(db, dir).initialize()
             assertEquals(8, repo.getBook("valid")!!.anchorBlock)
             assertEquals(22L, repo.getBook("valid")!!.lastOpenedAt)
-        } finally { db.close(); dir.deleteRecursively() }
+        } finally {
+            db.close()
+            dir.deleteRecursively()
+        }
     }
 
-    @Test fun corruptRecentsAndPayloadReadsNeverDeleteEvidence() = runBlocking {
+    @Test
+    fun corruptRecentsAndPayloadReadsNeverDeleteEvidence() = runBlocking {
         val dir = Files.createTempDirectory("verso-corrupt").toFile()
         File(dir, "docs").mkdirs()
         val corrupt = File(dir, "docs/broken.json").apply { writeText("bad") }
@@ -99,10 +111,14 @@ class LibraryPersistenceTest {
             assertEquals("bad", corrupt.readText())
             assertEquals("[broken", raw.readText())
             assertNotNull(repo.getBook("broken"))
-        } finally { db.close(); dir.deleteRecursively() }
+        } finally {
+            db.close()
+            dir.deleteRecursively()
+        }
     }
 
-    @Test fun legacyStoreDoesNotEvictOrDeleteCorruption() {
+    @Test
+    fun legacyStoreDoesNotEvictOrDeleteCorruption() {
         val dir = Files.createTempDirectory("verso-old-api").toFile()
         try {
             val store = LibraryStore(dir)
@@ -112,6 +128,64 @@ class LibraryPersistenceTest {
             assertNull(store.load("1"))
             assertTrue(File(dir, "docs/1.json").exists())
             assertEquals(25, store.list().size)
-        } finally { dir.deleteRecursively() }
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun bookmarksPersistToggleUpdateLabelAndDeleteAcrossRepository() = runBlocking {
+        val dir = Files.createTempDirectory("verso-bookmarks").toFile()
+        val db = database()
+        try {
+            val repo = BookRepository(db, dir)
+            val richDoc = Document(
+                "Physics Notes",
+                listOf(
+                    Heading(1, InlineText.plain("1. Kinematics")),
+                    Paragraph(InlineText.plain("Velocity and acceleration equations.")),
+                    Heading(2, InlineText.plain("2. Dynamics")),
+                    Paragraph(InlineText.plain("Newton's second law of motion."))
+                )
+            )
+            val book = repo.importDocument(
+                DocumentSource("physics.md", "text/markdown", "# Physics".toByteArray()),
+                richDoc,
+                SourceFormat.Markdown
+            )
+
+            // Add bookmark at block 1
+            val added1 = repo.toggleBookmark(book.id, richDoc, blockIndex = 1, offsetPx = 24)
+            assertTrue(added1)
+
+            // Add bookmark at block 3 with custom label
+            val added2 = repo.toggleBookmark(book.id, richDoc, blockIndex = 3, offsetPx = 0, customLabel = "Key Law")
+            assertTrue(added2)
+
+            val saved = repo.getBookmarks(book.id)
+            assertEquals(2, saved.size)
+            assertEquals(1, saved[0].blockIndex)
+            assertEquals("1. Kinematics", saved[0].sectionTitle)
+            assertEquals(3, saved[1].blockIndex)
+            assertEquals("Key Law", saved[1].label)
+            assertEquals("2. Dynamics", saved[1].sectionTitle)
+
+            // Update bookmark label
+            repo.updateBookmarkLabel(saved[0].id, "Review for exam")
+            assertEquals("Review for exam", repo.getBookmarks(book.id)[0].label)
+
+            // Toggle again at block 1 removes it
+            val toggledOff = repo.toggleBookmark(book.id, richDoc, blockIndex = 1, offsetPx = 0)
+            assertFalse(toggledOff)
+            assertEquals(1, repo.getBookmarks(book.id).size)
+
+            // Remove remaining bookmark
+            repo.removeBookmark(saved[1].id)
+            assertTrue(repo.getBookmarks(book.id).isEmpty())
+        } finally {
+            db.close()
+            dir.deleteRecursively()
+        }
     }
 }
+

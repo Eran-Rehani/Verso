@@ -26,6 +26,7 @@ class BookRepository(private val database: VersoDatabase, private val dir: File)
     private val mutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private var initialized = false
+
     val allBooks: Flow<List<BookEntity>> = dao.getAllBooks()
 
     private suspend fun <T> locked(action: suspend () -> T): T = withContext(Dispatchers.IO) {
@@ -181,25 +182,110 @@ class BookRepository(private val database: VersoDatabase, private val dir: File)
     }
 
     suspend fun touch(id: String) = locked { dao.updateLastOpened(id, System.currentTimeMillis()) }
+
     suspend fun updateAnchor(id: String, block: Int, offsetPx: Int) = locked {
         dao.updateReadingPosition(id, block.coerceAtLeast(0), offsetPx.coerceAtLeast(0))
     }
+
     // Retaining files plus a tombstone prevents crash reconciliation resurrecting a deleted book.
     suspend fun delete(id: String) = locked { dao.setAvailability(id, "DELETED") }
+
     suspend fun count(): Int = locked { dao.getAllNow().count { it.availability != "DELETED" } }
+
     suspend fun original(id: String): File? = locked {
         dao.getBookById(id)?.takeIf { it.hasOriginal }?.let { safeFile(it.sourcePath) }?.takeIf { it.isFile }
     }
 
+    // --- Bookmarks ---
+    fun bookmarksFor(bookId: String): Flow<List<BookmarkEntity>> = dao.getBookmarksForBook(bookId)
+
+    suspend fun getBookmarks(bookId: String): List<BookmarkEntity> = locked {
+        dao.getBookmarksForBookNow(bookId)
+    }
+
+    suspend fun toggleBookmark(
+        bookId: String,
+        document: Document,
+        blockIndex: Int,
+        offsetPx: Int = 0,
+        customLabel: String = ""
+    ): Boolean = locked {
+        val safeBlockIndex = if (document.blocks.isNotEmpty()) {
+            blockIndex.coerceIn(0, document.blocks.size - 1)
+        } else 0
+        val existing = dao.getBookmarkAtBlock(bookId, safeBlockIndex)
+        if (existing != null) {
+            dao.deleteBookmarkById(existing.id)
+            false
+        } else {
+            val desc = app.verso.core.bookmark.BookmarkHelper.describe(document, safeBlockIndex, offsetPx)
+            val entity = BookmarkEntity(
+                id = BookmarkEntity.idFor(bookId, safeBlockIndex),
+                bookId = bookId,
+                blockIndex = safeBlockIndex,
+                offsetPx = desc.offsetPx,
+                pageNumber = desc.pageNumber,
+                totalPages = desc.totalPages,
+                sectionTitle = desc.sectionTitle ?: "",
+                snippet = desc.snippet,
+                label = customLabel.trim(),
+                progressFraction = desc.progressFraction,
+                createdAt = System.currentTimeMillis()
+            )
+            dao.insertBookmark(entity)
+            true
+        }
+    }
+
+    suspend fun saveBookmark(
+        bookId: String,
+        document: Document,
+        blockIndex: Int,
+        offsetPx: Int = 0,
+        customLabel: String = ""
+    ): BookmarkEntity = locked {
+        val safeBlockIndex = if (document.blocks.isNotEmpty()) {
+            blockIndex.coerceIn(0, document.blocks.size - 1)
+        } else 0
+        val desc = app.verso.core.bookmark.BookmarkHelper.describe(document, safeBlockIndex, offsetPx)
+        val existing = dao.getBookmarkAtBlock(bookId, safeBlockIndex)
+        val entity = BookmarkEntity(
+            id = BookmarkEntity.idFor(bookId, safeBlockIndex),
+            bookId = bookId,
+            blockIndex = safeBlockIndex,
+            offsetPx = desc.offsetPx,
+            pageNumber = desc.pageNumber,
+            totalPages = desc.totalPages,
+            sectionTitle = desc.sectionTitle ?: "",
+            snippet = desc.snippet,
+            label = customLabel.trim().ifEmpty { existing?.label ?: "" },
+            progressFraction = desc.progressFraction,
+            createdAt = existing?.createdAt ?: System.currentTimeMillis()
+        )
+        dao.insertBookmark(entity)
+        entity
+    }
+
+    suspend fun removeBookmark(bookmarkId: String) = locked {
+        dao.deleteBookmarkById(bookmarkId)
+    }
+
+    suspend fun updateBookmarkLabel(bookmarkId: String, label: String) = locked {
+        dao.updateBookmarkLabel(bookmarkId, label.trim())
+    }
+
     private fun payloadFile(book: BookEntity): File? =
         if (book.payloadPath.isEmpty()) legacyFile(book.id) else safeFile(book.payloadPath)
+
     private fun legacyFile(id: String): File? =
         if (id.matches(Regex("[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}"))) safeFile("docs/$id.json") else null
+
     private fun safeFile(path: String): File? {
         if (path.isBlank() || File(path).isAbsolute) return null
         val file = File(dir, path).canonicalFile
         return file.takeIf { it.toPath().startsWith(dir.canonicalFile.toPath()) }
     }
+
     private fun decodeOrNull(file: File): Document? = try { DocumentCodec.decode(file.readText()) } catch (e: Exception) { null }
 
     companion object {

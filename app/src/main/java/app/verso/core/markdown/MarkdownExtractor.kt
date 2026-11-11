@@ -26,7 +26,6 @@ import org.commonmark.ext.gfm.tables.TablesExtension
 import org.commonmark.node.BlockQuote
 import org.commonmark.node.BulletList
 import org.commonmark.node.Code
-import org.commonmark.node.CustomBlock
 import org.commonmark.node.Emphasis
 import org.commonmark.node.FencedCodeBlock
 import org.commonmark.node.HardLineBreak
@@ -54,15 +53,47 @@ object MarkdownExtractor {
         .extensions(listOf(TablesExtension.create(), StrikethroughExtension.create()))
         .build()
 
+    private val MATH_CODE_LANGUAGES = setOf("math", "latex", "tex", "katex")
+
     fun extract(markdown: String): Document {
         if (markdown.isBlank()) return Document("", emptyList())
         val cleaned = TextCleaner.clean(markdown)
         val protected = MathProtector.protect(cleaned)
-        val rootNode = parser.parse(protected.text)
+        val preprocessed = preprocessLatexDocumentMacros(protected.text)
+        val rootNode = parser.parse(preprocessed)
 
         val blocks = mutableListOf<Block>()
         walkBlocks(rootNode.firstChild, blocks, quoteDepth = 0, mathList = protected.math)
         return Document("", blocks)
+    }
+
+    private val LATEX_CHAPTER_REGEX = Regex("""(?m)^\s*\\(?:part|chapter)\*?\{([^{}\n]+)\}\s*$""")
+    private val LATEX_SECTION_REGEX = Regex("""(?m)^\s*\\section\*?\{([^{}\n]+)\}\s*$""")
+    private val LATEX_SUBSECTION_REGEX = Regex("""(?m)^\s*\\subsection\*?\{([^{}\n]+)\}\s*$""")
+    private val LATEX_SUBSUBSECTION_REGEX = Regex("""(?m)^\s*\\subsubsection\*?\{([^{}\n]+)\}\s*$""")
+    private val LATEX_PARAGRAPH_REGEX = Regex("""(?m)^\s*\\paragraph\*?\{([^{}\n]+)\}\s*$""")
+    private val LATEX_TEXTBF_REGEX = Regex("""\\textbf\{([^{}\n]+)\}""")
+    private val LATEX_TEXTIT_REGEX = Regex("""\\(?:textit|emph)\{([^{}\n]+)\}""")
+    private val LATEX_TEXTTT_REGEX = Regex("""\\texttt\{([^{}\n]+)\}""")
+
+    /**
+     * Converts LaTeX structural macros (\chapter, \section, \subsection, \subsubsection,
+     * \textbf, \textit, \emph) outside math placeholders into Markdown equivalents so
+     * .tex documents and hybrid LaTeX/Markdown notes produce proper Headings (for TOC)
+     * and inline formatting.
+     */
+    private fun preprocessLatexDocumentMacros(input: String): String {
+        if (!input.contains('\\')) return input
+        var text = input
+        text = text.replace(LATEX_CHAPTER_REGEX, "# $1")
+        text = text.replace(LATEX_SECTION_REGEX, "# $1")
+        text = text.replace(LATEX_SUBSECTION_REGEX, "## $1")
+        text = text.replace(LATEX_SUBSUBSECTION_REGEX, "### $1")
+        text = text.replace(LATEX_PARAGRAPH_REGEX, "#### $1")
+        text = text.replace(LATEX_TEXTBF_REGEX, "**$1**")
+        text = text.replace(LATEX_TEXTIT_REGEX, "*$1*")
+        text = text.replace(LATEX_TEXTTT_REGEX, "`$1`")
+        return text
     }
 
     private fun walkBlocks(
@@ -107,7 +138,11 @@ object MarkdownExtractor {
                 is FencedCodeBlock -> {
                     val lang = current.info?.trim()?.takeIf { it.isNotEmpty() }
                     val code = current.literal?.removeSuffix("\n") ?: ""
-                    out.add(CodeBlock(lang, code))
+                    if (lang != null && lang.lowercase() in MATH_CODE_LANGUAGES) {
+                        out.add(MathBlock(code.trim()))
+                    } else {
+                        out.add(CodeBlock(lang, code))
+                    }
                 }
                 is IndentedCodeBlock -> {
                     val code = current.literal?.removeSuffix("\n") ?: ""
@@ -183,7 +218,6 @@ object MarkdownExtractor {
                             handleList(childNode, isOrdered = true, startNumber = childNode.startNumber, out = out, depth = depth + 1, mathList = mathList)
                         }
                         else -> {
-                            // Any other sub-block
                             walkBlocks(childNode, out, quoteDepth = 0, mathList = mathList)
                         }
                     }
@@ -202,7 +236,7 @@ object MarkdownExtractor {
         while (child != null) {
             when (child) {
                 is TableHead -> {
-                    var tr = child.firstChild
+                    val tr = child.firstChild
                     if (tr is TableRow) {
                         header = parseTableRow(tr, mathList)
                     }
@@ -291,8 +325,7 @@ object MarkdownExtractor {
         val spans = mutableListOf<Span>()
         collectInline(firstNode, sb, spans)
 
-        // Expand math placeholders in sb and spans
-        return expandMathPlaceholders(sb.toString(), spans, mathList)
+        return MathProtector.expandPlaceholders(sb.toString(), spans, mathList)
     }
 
     private fun collectInline(
@@ -355,59 +388,5 @@ object MarkdownExtractor {
             }
             cur = cur.next
         }
-    }
-
-    private fun expandMathPlaceholders(
-        text: String,
-        existingSpans: List<Span>,
-        mathList: List<MathProtector.MathSpan>
-    ): InlineText {
-        if (!text.contains(MathProtector.OPEN)) {
-            return InlineText(text, existingSpans)
-        }
-
-        val sb = StringBuilder()
-        val indexMap = IntArray(text.length + 1)
-        val mathSpans = mutableListOf<Span>()
-        var i = 0
-
-        while (i < text.length) {
-            indexMap[i] = sb.length
-            if (text[i] == MathProtector.OPEN) {
-                val closePos = text.indexOf(MathProtector.CLOSE, i + 1)
-                if (closePos != -1) {
-                    val numStr = text.substring(i + 1, closePos)
-                    val idx = numStr.toIntOrNull()
-                    if (idx != null && idx in mathList.indices) {
-                        val mathContent = mathList[idx].latex
-                        val start = sb.length
-                        sb.append(mathContent)
-                        val end = sb.length
-                        mathSpans.add(Span(start, end, SpanKind.Math))
-                        for (k in i until closePos + 1) {
-                            indexMap[k] = start
-                        }
-                        i = closePos + 1
-                        continue
-                    }
-                }
-            }
-            sb.append(text[i])
-            i++
-        }
-        indexMap[text.length] = sb.length
-
-        val newText = sb.toString()
-        val finalSpans = mutableListOf<Span>()
-        for (span in existingSpans) {
-            val s = indexMap[span.start.coerceIn(0, text.length)]
-            val e = indexMap[span.end.coerceIn(0, text.length)]
-            if (e > s) {
-                finalSpans.add(Span(s, e, span.kind, span.href))
-            }
-        }
-        finalSpans.addAll(mathSpans)
-
-        return InlineText(newText, finalSpans)
     }
 }

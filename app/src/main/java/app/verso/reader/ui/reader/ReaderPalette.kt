@@ -1,8 +1,10 @@
 package app.verso.reader.ui.reader
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import app.verso.core.store.ThemeChoice
 
+@Immutable
 data class ReaderPalette(
     val background: Color,
     val text: Color,

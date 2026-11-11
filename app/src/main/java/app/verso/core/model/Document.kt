@@ -1,5 +1,6 @@
 package app.verso.core.model
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -13,6 +14,7 @@ enum class SpanKind {
     Math
 }
 
+@Immutable
 @Serializable
 data class Span(
     val start: Int,
@@ -21,6 +23,7 @@ data class Span(
     val href: String? = null
 )
 
+@Immutable
 @Serializable
 data class InlineText(
     val text: String,
@@ -31,33 +34,41 @@ data class InlineText(
     }
 }
 
+@Immutable
 @Serializable
 sealed interface Block
 
+@Immutable
 @Serializable
 @SerialName("heading")
 data class Heading(val level: Int, val text: InlineText) : Block
 
+@Immutable
 @Serializable
 @SerialName("paragraph")
 data class Paragraph(val text: InlineText) : Block
 
+@Immutable
 @Serializable
 @SerialName("list_item")
 data class ListItem(val depth: Int, val marker: String, val text: InlineText) : Block
 
+@Immutable
 @Serializable
 @SerialName("quote")
 data class Quote(val depth: Int, val text: InlineText) : Block
 
+@Immutable
 @Serializable
 @SerialName("code")
 data class CodeBlock(val language: String?, val code: String) : Block
 
+@Immutable
 @Serializable
 @SerialName("math")
 data class MathBlock(val latex: String) : Block
 
+@Immutable
 @Serializable
 @SerialName("table")
 data class TableBlock(
@@ -65,14 +76,17 @@ data class TableBlock(
     val rows: List<List<InlineText>>
 ) : Block
 
+@Immutable
 @Serializable
 @SerialName("image")
 data class ImageBlock(val alt: String) : Block
 
+@Immutable
 @Serializable
 @SerialName("divider")
 data object Divider : Block
 
+@Immutable
 @Serializable
 data class Document(val title: String, val blocks: List<Block>)
 
