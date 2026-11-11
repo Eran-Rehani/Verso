@@ -18,7 +18,7 @@ class VersoApp : Application() {
         val pdfSource = PdfBoxPageSource(this)
         val importer = DocumentImporter(pdfSource)
         val database = VersoDatabase.getInstance(this)
-        val bookRepository = BookRepository(database.bookDao())
+        val bookRepository = BookRepository(database, libraryDir)
         AppEnv(library, settings, importer, bookRepository)
     }
 }

@@ -35,6 +35,8 @@ class DocumentImporter(
             throw ImportError.TooLarge()
         }
 
+        val context = currentCoroutineContext()
+        context.ensureActive()
         val format = FormatDetector.detect(source)
         currentCoroutineContext().ensureActive()
 
@@ -54,13 +56,13 @@ class DocumentImporter(
                 }
                 SourceFormat.Epub -> {
                     EpubExtractor.extract(source.bytes) {
-                        // cancellation check
+                        context.ensureActive()
                     }
                 }
                 SourceFormat.Pdf -> {
                     val pdf = pdfSource ?: throw ImportError.Unsupported("PDF support is unavailable")
                     PdfExtractor(pdf).extract(source.bytes) {
-                        // cancellation check
+                        context.ensureActive()
                     }
                 }
             }

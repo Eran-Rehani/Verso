@@ -34,6 +34,7 @@ class PdfBoxPageSource(private val context: Context) : PdfPageSource {
             val pages = mutableListOf<PdfPage>()
 
             for (pageIndex in 0 until pageCount) {
+                onPage()
                 val pdPage = doc.getPage(pageIndex)
                 val cropBox = pdPage.cropBox ?: pdPage.mediaBox
                 val rotation = pdPage.rotation
@@ -99,6 +100,8 @@ class PdfBoxPageSource(private val context: Context) : PdfPageSource {
             }
 
             return PdfContent(title, pages)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: InvalidPasswordException) {
             throw ImportError.Unsupported("password-protected PDF")
         } catch (e: ImportError) {

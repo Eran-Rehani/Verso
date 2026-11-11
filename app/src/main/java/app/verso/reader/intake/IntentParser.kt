@@ -7,6 +7,9 @@ import android.os.Build
 import android.provider.OpenableColumns
 import app.verso.core.importer.DocumentImporter
 import app.verso.core.importer.DocumentSource
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -18,18 +21,23 @@ sealed interface IntakeResult {
 }
 
 object SourceReader {
-    fun readBytes(
+    suspend fun readBytes(
         resolver: ContentResolver,
         uri: Uri,
         limit: Long = DocumentImporter.MAX_SOURCE_BYTES
     ): ByteArray? {
+        val context = currentCoroutineContext()
+        context.ensureActive()
         val stream = resolver.openInputStream(uri) ?: throw FileNotFoundException("Cannot open stream for $uri")
         stream.use { input ->
             val baos = ByteArrayOutputStream()
             val buffer = ByteArray(16384)
             var totalRead = 0L
             var read: Int
-            while (input.read(buffer).also { read = it } != -1) {
+            while (true) {
+                context.ensureActive()
+                read = input.read(buffer)
+                if (read < 0) break
                 totalRead += read
                 if (totalRead > limit) {
                     return null
@@ -42,7 +50,7 @@ object SourceReader {
 }
 
 object IntentParser {
-    fun parse(intent: Intent, resolver: ContentResolver): IntakeResult {
+    suspend fun parse(intent: Intent, resolver: ContentResolver): IntakeResult {
         val action = intent.action ?: return IntakeResult.Ignore
 
         when (action) {
@@ -58,14 +66,12 @@ object IntentParser {
                     return readUriContent(resolver, streamUri, intent.type)
                 }
 
-                val extraText = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+                val extraText = intent.getStringExtra(Intent.EXTRA_TEXT)
                 if (extraText.isNullOrEmpty()) {
                     return IntakeResult.Failure("Nothing to read in the shared content.")
                 }
-                val bytes = extraText.toByteArray(Charsets.UTF_8)
-                return IntakeResult.Source(
-                    DocumentSource(name = null, mimeType = "text/plain", bytes = bytes)
-                )
+                val context = currentCoroutineContext()
+                return IntakeResult.Source(DocumentSource.fromText(extraText) { context.ensureActive() })
             }
 
             Intent.ACTION_VIEW -> {
@@ -77,7 +83,7 @@ object IntentParser {
         }
     }
 
-    private fun readUriContent(
+    suspend fun readUriContent(
         resolver: ContentResolver,
         uri: Uri,
         intentType: String?
@@ -94,6 +100,8 @@ object IntentParser {
             }
 
             IntakeResult.Source(DocumentSource(name = displayName, mimeType = mimeType, bytes = bytes))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: SecurityException) {
             IntakeResult.Failure("Couldn't open the shared file.")
         } catch (e: FileNotFoundException) {

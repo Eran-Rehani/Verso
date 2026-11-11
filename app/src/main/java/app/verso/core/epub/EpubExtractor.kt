@@ -21,44 +21,11 @@ object EpubExtractor {
         maxUncompressedBytes: Long = 256L * 1024 * 1024,
         onChapter: () -> Unit = {}
     ): Document {
-        val entryMap = mutableMapOf<String, ByteArray>()
-        var totalUncompressed = 0L
-
-        try {
-            ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
-                var entry: ZipEntry? = zis.nextEntry
-                while (entry != null) {
-                    val name = entry.name
-                    val lower = name.lowercase()
-                    val isCandidate = lower.endsWith(".xml") ||
-                            lower.endsWith(".opf") ||
-                            lower.endsWith(".xhtml") ||
-                            lower.endsWith(".html") ||
-                            lower.endsWith(".htm") ||
-                            lower.endsWith(".ncx") ||
-                            name == "mimetype"
-
-                    if (isCandidate) {
-                        val buffer = ByteArray(8192)
-                        val baos = ByteArrayOutputStream()
-                        var read: Int
-                        while (zis.read(buffer).also { read = it } != -1) {
-                            totalUncompressed += read
-                            if (totalUncompressed > maxUncompressedBytes) {
-                                throw ImportError.Corrupt("Exceeded maximum uncompressed size cap")
-                            }
-                            baos.write(buffer, 0, read)
-                        }
-                        entryMap[name] = baos.toByteArray()
-                    }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
-                }
-            }
-        } catch (e: ImportError) {
-            throw e
-        } catch (e: Exception) {
-            throw ImportError.Corrupt("Failed to read EPUB ZIP entries", e)
+        val entryMap = app.verso.core.importer.BoundedArchive.read(
+            bytes, app.verso.core.importer.ArchiveLimits(totalBytes = maxUncompressedBytes), onChapter
+        ) { name ->
+            val lower = name.lowercase()
+            listOf(".xml", ".opf", ".xhtml", ".html", ".htm", ".ncx").any { lower.endsWith(it) } || name == "mimetype"
         }
 
         if (entryMap.isEmpty()) {

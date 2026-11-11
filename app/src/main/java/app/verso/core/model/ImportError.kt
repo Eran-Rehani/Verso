@@ -5,6 +5,8 @@ sealed class ImportError(
     val userMessage: String,
     cause: Throwable? = null
 ) : Exception(message, cause) {
+    class ArchiveLimit(detail: String) : ImportError("archive limit: $detail", "Archive limit exceeded: $detail.")
+    class Intake(detail: String) : ImportError("intake: $detail", detail)
     class Empty : ImportError("empty", "No readable text was found in this file.")
     class Drm : ImportError("drm", "This book is DRM-protected and can't be opened.")
     class NoTextLayer : ImportError("no text layer", "This PDF has no selectable text (it looks scanned). OCR isn't supported.")

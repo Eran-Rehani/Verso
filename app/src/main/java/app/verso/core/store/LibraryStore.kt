@@ -44,15 +44,7 @@ class LibraryStore(
     @Synchronized
     fun list(): List<RecentEntry> {
         val entries = recentsJson.read()
-        // Clean up entries with missing document files
-        val valid = entries.filter { entry ->
-            File(docsDir, "${entry.id}.json").exists()
-        }.sortedByDescending { it.lastOpenedAt }
-
-        if (valid.size != entries.size) {
-            recentsJson.write(valid)
-        }
-        return valid
+        return entries.sortedByDescending { it.lastOpenedAt }
     }
 
     @Synchronized
@@ -98,15 +90,8 @@ class LibraryStore(
             currentList.add(0, entry)
         }
 
-        // Evict beyond maxEntries
+        // Recents are a view over the library, never an eviction policy.
         currentList.sortByDescending { it.lastOpenedAt }
-        while (currentList.size > maxEntries) {
-            val evicted = currentList.removeAt(currentList.size - 1)
-            val evictedFile = File(docsDir, "${evicted.id}.json")
-            if (evictedFile.exists()) {
-                evictedFile.delete()
-            }
-        }
 
         recentsJson.write(currentList)
         return entry
@@ -120,9 +105,7 @@ class LibraryStore(
             val doc = DocumentCodec.decode(docFile.readText(Charsets.UTF_8))
             doc
         } catch (e: Exception) {
-            // Corrupt document, delete dead file and entry
-            docFile.delete()
-            delete(id)
+            // Retain evidence for repair/re-import.
             null
         }
     }

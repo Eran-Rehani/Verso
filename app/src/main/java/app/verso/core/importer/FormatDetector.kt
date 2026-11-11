@@ -34,7 +34,14 @@ object FormatDetector {
                 ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
                     val entry = zis.nextEntry
                     if (entry != null && entry.name == "mimetype") {
-                        val content = zis.readBytes().toString(StandardCharsets.UTF_8).trim()
+                        val buffer = ByteArray(128)
+                        var size = 0
+                        while (size < buffer.size) {
+                            val n = zis.read(buffer, size, buffer.size - size)
+                            if (n < 0) break
+                            size += n
+                        }
+                        val content = String(buffer, 0, size, StandardCharsets.UTF_8).trim()
                         if (content == "application/epub+zip") {
                             return SourceFormat.Epub
                         }

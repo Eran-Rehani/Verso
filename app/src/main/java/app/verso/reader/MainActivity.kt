@@ -72,6 +72,7 @@ import app.verso.reader.ui.reader.ReaderPalette
 import app.verso.reader.ui.reader.ReaderScreen
 import app.verso.reader.ui.reader.paletteFor
 import app.verso.reader.ui.settings.SettingsPanel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -174,29 +175,11 @@ open class MainActivity : ComponentActivity() {
                 val openDocLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri: Uri? ->
-                    if (uri != null) {
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            try {
-                                val displayName = queryDisplayName(uri) ?: uri.lastPathSegment
-                                val mime = contentResolver.getType(uri)
-                                val bytes = SourceReader.readBytes(contentResolver, uri)
-                                if (bytes == null) {
-                                    withContext(Dispatchers.Main) {
-                                        viewModel.showFailure("This file is larger than 64 MB.")
-                                    }
-                                } else if (bytes.isEmpty()) {
-                                    withContext(Dispatchers.Main) {
-                                        viewModel.showFailure("No readable text was found in this file.")
-                                    }
-                                } else {
-                                    val source = DocumentSource(displayName, mime, bytes)
-                                    viewModel.import(source)
-                                }
-                            } catch (e: Exception) {
-                                withContext(Dispatchers.Main) {
-                                    viewModel.showFailure("Couldn't open the shared file.")
-                                }
-                            }
+                    if (uri != null) viewModel.acquire(null) {
+                        when (val result = IntentParser.readUriContent(contentResolver, uri, null)) {
+                            is IntakeResult.Source -> result.source
+                            is IntakeResult.Failure -> throw app.verso.core.model.ImportError.Intake(result.message)
+                            IntakeResult.Ignore -> throw app.verso.core.model.ImportError.Empty()
                         }
                     }
                 }
@@ -258,12 +241,16 @@ open class MainActivity : ComponentActivity() {
                                         openDocLauncher.launch(arrayOf("*/*"))
                                     },
                                     onPaste = {
-                                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = clipboard.primaryClip
-                                        val text = if (clip != null && clip.itemCount > 0) {
-                                            clip.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()
-                                        } else null
-                                        viewModel.pasteText(text ?: "")
+                                        viewModel.acquire(null) {
+                                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            val clip = clipboard.primaryClip
+                                            val text = if (clip != null && clip.itemCount > 0) {
+                                                clip.getItemAt(0)?.coerceToText(this@MainActivity)?.toString()
+                                            } else null
+                                            if (text.isNullOrBlank()) throw app.verso.core.model.ImportError.Intake("Clipboard is empty.")
+                                            val context = kotlinx.coroutines.currentCoroutineContext()
+                                            DocumentSource.fromText(text) { context.ensureActive() }
+                                        }
                                     },
                                     onNavigateToLibrary = { viewModel.selectTab(MainTab.Library) },
                                     modifier = Modifier.padding(innerPadding)
@@ -284,7 +271,7 @@ open class MainActivity : ComponentActivity() {
                     }
 
                     is Screen.Importing -> {
-                        ImportingScreen(palette = palette)
+                        ImportingScreen(palette = palette, phase = curScreen.phase, onCancel = viewModel::cancelImport)
                     }
 
                     is Screen.Reading -> {
@@ -304,7 +291,7 @@ open class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onAnchor = { block, offset ->
-                                    viewModel.onAnchor(block, offset)
+                                    viewModel.onAnchor(curScreen.id, block, offset)
                                 },
                                 onBack = { viewModel.closeReader() },
                                 onOpenSettings = {
@@ -348,32 +335,21 @@ open class MainActivity : ComponentActivity() {
     }
 
     private fun handleIncomingIntent(intent: Intent?) {
-        if (intent == null) return
-        lifecycleScope.launch(Dispatchers.IO) {
+        if (intent == null || intent.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_VIEW)) return
+        viewModel.acquire(null) {
             when (val result = IntentParser.parse(intent, contentResolver)) {
-                is IntakeResult.Source -> viewModel.import(result.source)
-                is IntakeResult.Failure -> viewModel.showFailure(result.message)
-                is IntakeResult.Ignore -> {}
+                is IntakeResult.Source -> result.source
+                is IntakeResult.Failure -> throw app.verso.core.model.ImportError.Intake(result.message)
+                IntakeResult.Ignore -> throw app.verso.core.model.ImportError.Empty()
             }
         }
     }
 
-    private fun queryDisplayName(uri: Uri): String? {
-        return try {
-            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (idx >= 0) cursor.getString(idx) else null
-                } else null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
+
 }
 
 @Composable
-fun ImportingScreen(palette: ReaderPalette, modifier: Modifier = Modifier) {
+fun ImportingScreen(palette: ReaderPalette, modifier: Modifier = Modifier, phase: String = "Reading source", onCancel: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
@@ -390,10 +366,12 @@ fun ImportingScreen(palette: ReaderPalette, modifier: Modifier = Modifier) {
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Preparing…",
+                text = phase,
                 fontSize = 17.sp,
                 color = palette.muted
             )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onCancel) { Text("Cancel import") }
         }
     }
 }

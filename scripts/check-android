@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+if [ -z "${JAVA_HOME:-}" ] && [ -d /usr/lib/jvm/java-21-openjdk ]; then
+    JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+    export JAVA_HOME
+fi
+mkdir -p .gradle/tmp
+JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djava.io.tmpdir=$PWD/.gradle/tmp"
+GRADLE_USER_HOME="${GRADLE_USER_HOME:-$PWD/.gradle/user-home}"
+export JAVA_TOOL_OPTIONS GRADLE_USER_HOME
+if [ "$#" -eq 0 ]; then
+    set -- :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+fi
+exec ./gradlew "$@"
