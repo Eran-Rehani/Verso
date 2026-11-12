@@ -548,8 +548,9 @@ fun FormatBadge(
     val cleanFormat = when (format.uppercase(Locale.ROOT)) {
         "PDF" -> "PDF"
         "EPUB" -> "EPUB"
+        "DJVU", "DJVO" -> "DJVU"
         "MARKDOWN", "MD" -> "MD"
-        "HTML", "HTM" -> "HTML"
+        "HTML", "HTM", "FB2" -> "HTML"
         "PLAINTEXT", "TXT" -> "TXT"
         else -> format.uppercase(Locale.ROOT).take(4)
     }
@@ -557,6 +558,7 @@ fun FormatBadge(
     val badgeBg = when (cleanFormat) {
         "PDF" -> Color(0xFFD32F2F)
         "EPUB" -> Color(0xFF1976D2)
+        "DJVU" -> Color(0xFF7B1FA2)
         "MD" -> Color(0xFF388E3C)
         "HTML" -> Color(0xFFE65100)
         else -> palette.rule
@@ -578,6 +580,14 @@ fun FormatBadge(
     }
 }
 
+private val TIME_FORMATTER = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+}
+
+private val DATE_FORMATTER = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+}
+
 private fun formatRelativeTimestamp(timestamp: Long): String {
     if (timestamp <= 0L) return "Never"
     val now = System.currentTimeMillis()
@@ -591,14 +601,12 @@ private fun formatRelativeTimestamp(timestamp: Long): String {
         diffMs < oneMinute -> "Just now"
         diffMs < oneHour -> "${(diffMs / oneMinute)}m ago"
         diffMs < oneDay -> {
-            val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
-            "Today at ${timeFormat.format(Date(timestamp))}"
+            "Today at ${TIME_FORMATTER.get()!!.format(Date(timestamp))}"
         }
         diffMs < 2 * oneDay -> "Yesterday"
         diffMs < 7 * oneDay -> "${(diffMs / oneDay)}d ago"
         else -> {
-            val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-            dateFormat.format(Date(timestamp))
+            DATE_FORMATTER.get()!!.format(Date(timestamp))
         }
     }
 }

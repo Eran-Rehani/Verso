@@ -58,8 +58,9 @@ object MarkdownExtractor {
     fun extract(markdown: String): Document {
         if (markdown.isBlank()) return Document("", emptyList())
         val cleaned = TextCleaner.clean(markdown)
-        val protected = MathProtector.protect(cleaned)
-        val preprocessed = preprocessLatexDocumentMacros(protected.text)
+        val verbatimConverted = convertLatexVerbatimBlocks(cleaned)
+        val protected = MathProtector.protect(verbatimConverted)
+        val preprocessed = preprocessLatexAndMarkupMacros(protected.text)
         val rootNode = parser.parse(preprocessed)
 
         val blocks = mutableListOf<Block>()
@@ -67,29 +68,134 @@ object MarkdownExtractor {
         return Document("", blocks)
     }
 
+    private val LATEX_VERBATIM_REGEX = Regex(
+        """\\begin\{(verbatim|lstlisting)\}(?:\[[^\]]*\])?(.*?)\\end\{\1\}""",
+        setOf(RegexOption.DOT_MATCHES_ALL)
+    )
+    private val LATEX_COMMENT_LINE_REGEX = Regex("""(?m)^[ \t]*%.*$""")
+    private val LATEX_PREAMBLE_DROP_REGEX = Regex(
+        """(?m)^[ \t]*\\(?:documentclass|usepackage|usetikzlibrary|bibliographystyle|pagenumbering|pagestyle|setlength|addtolength|newcommand|renewcommand|DeclareMathOperator|geometry|hypersetup|makeatletter|makeatother|maketitle|tableofcontents|newpage|clearpage|cleardoublepage|noindent|centering|raggedright|vspace|hspace|bigskip|medskip|smallskip)\*?(?:\[[^\]]*\])?(?:\{[^{}\n]*\})*[ \t]*$"""
+    )
+    private val LATEX_BEGIN_END_DOC_REGEX = Regex("""(?m)^[ \t]*\\(?:begin|end)\{(?:document|center|flushleft|flushright|figure|table)\}\*?(?:\[[^\]]*\])?[ \t]*$""")
+    private val LATEX_TITLE_REGEX = Regex("""(?m)^[ \t]*\\title\*?\{([^{}\n]+)\}[ \t]*$""")
+    private val LATEX_AUTHOR_REGEX = Regex("""(?m)^[ \t]*\\author\*?\{([^{}\n]+)\}[ \t]*$""")
+    private val LATEX_DATE_REGEX = Regex("""(?m)^[ \t]*\\date\*?\{([^{}\n]+)\}[ \t]*$""")
+    private val LATEX_ABSTRACT_REGEX = Regex(
+        """\\begin\{abstract\}(.*?)\\end\{abstract\}""",
+        setOf(RegexOption.DOT_MATCHES_ALL)
+    )
+    private val LATEX_QUOTE_ENV_REGEX = Regex(
+        """\\begin\{(?:quote|quotation)\}(.*?)\\end\{(?:quote|quotation)\}""",
+        setOf(RegexOption.DOT_MATCHES_ALL)
+    )
+    private val LATEX_THEOREM_ENV_REGEX = Regex(
+        """\\begin\{(theorem|lemma|proposition|corollary|definition|remark|example|proof)\}(?:\[([^\]]*)\])?(.*?)\\end\{\1\}""",
+        setOf(RegexOption.DOT_MATCHES_ALL)
+    )
+    private val LATEX_LIST_ENV_TAG_REGEX = Regex("""(?m)^[ \t]*\\(?:begin|end)\{(?:itemize|enumerate|description)\}[ \t]*$""")
+    private val LATEX_ITEM_OPT_REGEX = Regex("""(?m)^[ \t]*\\item\[([^\]]+)\][ \t]*""")
+    private val LATEX_ITEM_REGEX = Regex("""(?m)^[ \t]*\\item\b[ \t]*""")
     private val LATEX_CHAPTER_REGEX = Regex("""(?m)^\s*\\(?:part|chapter)\*?\{([^{}\n]+)\}\s*$""")
     private val LATEX_SECTION_REGEX = Regex("""(?m)^\s*\\section\*?\{([^{}\n]+)\}\s*$""")
     private val LATEX_SUBSECTION_REGEX = Regex("""(?m)^\s*\\subsection\*?\{([^{}\n]+)\}\s*$""")
     private val LATEX_SUBSUBSECTION_REGEX = Regex("""(?m)^\s*\\subsubsection\*?\{([^{}\n]+)\}\s*$""")
     private val LATEX_PARAGRAPH_REGEX = Regex("""(?m)^\s*\\paragraph\*?\{([^{}\n]+)\}\s*$""")
+    private val LATEX_CAPTION_REGEX = Regex("""(?m)^\s*\\caption\*?\{([^{}\n]+)\}\s*$""")
+    private val LATEX_LABEL_REGEX = Regex("""\\label\{[^{}\n]+\}""")
+    private val LATEX_REF_REGEX = Regex("""\\(?:eq)?ref\{([^{}\n]+)\}""")
+    private val LATEX_CITE_REGEX = Regex("""\\cite(?:\[[^\]]*\])?\{([^{}\n]+)\}""")
+    private val LATEX_HREF_REGEX = Regex("""\\href\{([^{}\n]+)\}\{([^{}\n]+)\}""")
+    private val LATEX_URL_REGEX = Regex("""\\url\{([^{}\n]+)\}""")
+    private val LATEX_FOOTNOTE_REGEX = Regex("""\\footnote\{([^{}\n]+)\}""")
     private val LATEX_TEXTBF_REGEX = Regex("""\\textbf\{([^{}\n]+)\}""")
-    private val LATEX_TEXTIT_REGEX = Regex("""\\(?:textit|emph)\{([^{}\n]+)\}""")
+    private val LATEX_TEXTIT_REGEX = Regex("""\\(?:textit|emph|textsc)\{([^{}\n]+)\}""")
     private val LATEX_TEXTTT_REGEX = Regex("""\\texttt\{([^{}\n]+)\}""")
+    private val LATEX_QUOTES_REGEX = Regex("""``([^`\n]+?)''""")
+
+    private val ORG_TITLE_REGEX = Regex("""(?mi)^#\+TITLE:\s*(.+)$""")
+    private val ORG_HEADING_REGEX = Regex("""(?m)^(\*{1,4})\s+(\S.*)$""")
+    private val ADOC_HEADING_REGEX = Regex("""(?m)^(={1,4})\s+(\S.*)$""")
+
+    private fun convertLatexVerbatimBlocks(input: String): String {
+        if (!input.contains("\\begin{")) return input
+        return input.replace(LATEX_VERBATIM_REGEX) { match ->
+            val body = match.groupValues[2].trim('\n', '\r')
+            "\n```\n$body\n```\n"
+        }
+    }
 
     /**
-     * Converts LaTeX structural macros (\chapter, \section, \subsection, \subsubsection,
-     * \textbf, \textit, \emph) outside math placeholders into Markdown equivalents so
-     * .tex documents and hybrid LaTeX/Markdown notes produce proper Headings (for TOC)
-     * and inline formatting.
+     * Converts LaTeX structural macros (\documentclass, \title, \chapter, \section, \subsection,
+     * \begin{abstract}, \begin{itemize}/\item, \begin{theorem}, \textbf, \textit, \emph, \href)
+     * as well as Org-mode and AsciiDoc headings outside math placeholders into Markdown equivalents.
      */
-    private fun preprocessLatexDocumentMacros(input: String): String {
-        if (!input.contains('\\')) return input
+    private fun preprocessLatexAndMarkupMacros(input: String): String {
         var text = input
+
+        // Support Org-mode (#+TITLE:, * Heading) and AsciiDoc (= Heading) when present
+        if (text.contains("#+TITLE:", ignoreCase = true) || ORG_HEADING_REGEX.containsMatchIn(text)) {
+            text = text.replace(ORG_TITLE_REGEX, "# $1")
+            text = text.replace(ORG_HEADING_REGEX) { m ->
+                "${"#".repeat(m.groupValues[1].length)} ${m.groupValues[2]}"
+            }
+        }
+        if (ADOC_HEADING_REGEX.containsMatchIn(text)) {
+            text = text.replace(ADOC_HEADING_REGEX) { m ->
+                "${"#".repeat(m.groupValues[1].length)} ${m.groupValues[2]}"
+            }
+        }
+
+        if (!text.contains('\\')) return text
+
+        val isLatexDoc = text.contains("\\documentclass") ||
+            text.contains("\\begin{document}") ||
+            text.contains("\\section") ||
+            text.contains("\\subsection")
+
+        if (isLatexDoc) {
+            text = text.replace(LATEX_COMMENT_LINE_REGEX, "")
+            text = text.replace(LATEX_PREAMBLE_DROP_REGEX, "")
+            text = text.replace(LATEX_BEGIN_END_DOC_REGEX, "")
+            text = text.replace(LATEX_TITLE_REGEX, "# $1")
+            text = text.replace(LATEX_AUTHOR_REGEX, "*$1*")
+            text = text.replace(LATEX_DATE_REGEX, "*$1*")
+            text = text.replace(LATEX_ABSTRACT_REGEX) { m ->
+                val body = m.groupValues[1].trim().lines().joinToString("\n") { "> ${it.trim()}" }
+                "\n**Abstract**\n\n$body\n"
+            }
+            text = text.replace(LATEX_QUOTE_ENV_REGEX) { m ->
+                val body = m.groupValues[1].trim().lines().joinToString("\n") { "> ${it.trim()}" }
+                "\n$body\n"
+            }
+            text = text.replace(LATEX_THEOREM_ENV_REGEX) { m ->
+                val envKind = m.groupValues[1].replaceFirstChar { it.uppercase() }
+                val optTitle = m.groupValues[2].trim()
+                val body = m.groupValues[3].trim()
+                val header = if (optTitle.isNotEmpty()) "**$envKind ($optTitle).**" else "**$envKind.**"
+                if (envKind.equals("Proof", ignoreCase = true)) {
+                    "\n*$envKind.* $body ∎\n"
+                } else {
+                    "\n$header *$body*\n"
+                }
+            }
+            text = text.replace(LATEX_LIST_ENV_TAG_REGEX, "")
+            text = text.replace(LATEX_ITEM_OPT_REGEX, "- **$1** ")
+            text = text.replace(LATEX_ITEM_REGEX, "- ")
+            text = text.replace(LATEX_CAPTION_REGEX, "*$1*")
+            text = text.replace(LATEX_LABEL_REGEX, "")
+            text = text.replace(LATEX_REF_REGEX, "($1)")
+            text = text.replace(LATEX_CITE_REGEX, "[$1]")
+            text = text.replace(LATEX_QUOTES_REGEX, "“$1”")
+        }
+
         text = text.replace(LATEX_CHAPTER_REGEX, "# $1")
         text = text.replace(LATEX_SECTION_REGEX, "# $1")
         text = text.replace(LATEX_SUBSECTION_REGEX, "## $1")
         text = text.replace(LATEX_SUBSUBSECTION_REGEX, "### $1")
         text = text.replace(LATEX_PARAGRAPH_REGEX, "#### $1")
+        text = text.replace(LATEX_HREF_REGEX, "[$2]($1)")
+        text = text.replace(LATEX_URL_REGEX, "<$1>")
+        text = text.replace(LATEX_FOOTNOTE_REGEX, " ($1)")
         text = text.replace(LATEX_TEXTBF_REGEX, "**$1**")
         text = text.replace(LATEX_TEXTIT_REGEX, "*$1*")
         text = text.replace(LATEX_TEXTTT_REGEX, "`$1`")

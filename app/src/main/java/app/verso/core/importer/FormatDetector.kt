@@ -1,5 +1,6 @@
 package app.verso.core.importer
 
+import app.verso.core.djvu.DjvuExtractor
 import app.verso.core.markdown.MathProtector
 import app.verso.core.model.ImportError
 import java.io.ByteArrayInputStream
@@ -7,6 +8,46 @@ import java.nio.charset.StandardCharsets
 import java.util.zip.ZipInputStream
 
 object FormatDetector {
+
+    private val MARKDOWN_LIKE_EXTENSIONS = setOf(
+        "md", "markdown", "mdown", "mkd", "mdwn", "rmd", "qmd",
+        "tex", "ltx", "latex",
+        "rst", "org", "adoc", "asciidoc"
+    )
+
+    private val HTML_LIKE_EXTENSIONS = setOf(
+        "html", "htm", "xhtml", "shtml", "fb2"
+    )
+
+    private val PLAIN_TEXT_EXTENSIONS = setOf(
+        "txt", "text", "log", "cfg", "ini", "conf"
+    )
+
+    private val MARKDOWN_MIMES = setOf(
+        "text/markdown",
+        "text/x-markdown",
+        "text/x-tex",
+        "application/x-tex",
+        "application/x-latex",
+        "text/x-rst",
+        "text/prs.fallenstein.rst",
+        "text/org",
+        "text/x-org",
+        "text/asciidoc"
+    )
+
+    private val HTML_MIMES = setOf(
+        "text/html",
+        "application/xhtml+xml",
+        "application/x-fictionbook+xml",
+        "text/xml"
+    )
+
+    private val DJVU_MIMES = setOf(
+        "image/vnd.djvu",
+        "image/x-djvu",
+        "application/x-djvu"
+    )
 
     fun detect(source: DocumentSource): SourceFormat {
         val bytes = source.bytes
@@ -20,7 +61,12 @@ object FormatDetector {
             }
         }
 
-        // 2. ZIP magic bytes (PK\u0003\u0004)
+        // 2. DjVu magic bytes (AT&TFORM...DJVU/DJVM or FORM...DJVU/DJVM)
+        if (DjvuExtractor.isDjvuMagic(bytes)) {
+            return SourceFormat.Djvu
+        }
+
+        // 3. ZIP magic bytes (PK\u0003\u0004)
         if (bytes.size >= 4 &&
             bytes[0] == 0x50.toByte() &&
             bytes[1] == 0x4B.toByte() &&
@@ -55,61 +101,46 @@ object FormatDetector {
             throw ImportError.Unsupported("ZIP archive")
         }
 
-        // 3. Name extensions
-        val lowerName = source.name?.lowercase() ?: ""
-        if (lowerName.endsWith(".md") ||
-            lowerName.endsWith(".markdown") ||
-            lowerName.endsWith(".mdown") ||
-            lowerName.endsWith(".tex") ||
-            lowerName.endsWith(".latex")
-        ) {
-            return SourceFormat.Markdown
-        }
-        if (lowerName.endsWith(".html") || lowerName.endsWith(".htm") || lowerName.endsWith(".xhtml")) {
-            return SourceFormat.Html
-        }
-        if (lowerName.endsWith(".epub")) {
-            return SourceFormat.Epub
-        }
-        if (lowerName.endsWith(".pdf")) {
-            return SourceFormat.Pdf
-        }
-        if (lowerName.endsWith(".txt")) {
-            return SourceFormat.PlainText
+        // 4. Name extensions
+        val lowerName = source.name?.lowercase()?.trim() ?: ""
+        val ext = lowerName.substringAfterLast('.', "")
+        if (ext.isNotEmpty()) {
+            when {
+                ext in MARKDOWN_LIKE_EXTENSIONS -> return SourceFormat.Markdown
+                ext in HTML_LIKE_EXTENSIONS -> return SourceFormat.Html
+                ext == "epub" -> return SourceFormat.Epub
+                ext == "pdf" -> return SourceFormat.Pdf
+                ext == "djvu" || ext == "djvo" -> return SourceFormat.Djvu
+                ext in PLAIN_TEXT_EXTENSIONS -> return SourceFormat.PlainText
+            }
         }
 
-        // 4. MIME type
-        val mime = source.mimeType?.lowercase() ?: ""
-        if (mime == "text/markdown" ||
-            mime == "text/x-markdown" ||
-            mime == "text/x-tex" ||
-            mime == "application/x-tex" ||
-            mime == "application/x-latex"
-        ) {
-            return SourceFormat.Markdown
-        }
-        if (mime == "text/html") {
-            return SourceFormat.Html
-        }
-        if (mime == "application/pdf") {
-            return SourceFormat.Pdf
-        }
-        if (mime == "application/epub+zip") {
-            return SourceFormat.Epub
+        // 5. MIME type
+        val mime = source.mimeType?.lowercase()?.substringBefore(';')?.trim() ?: ""
+        when {
+            mime in MARKDOWN_MIMES -> return SourceFormat.Markdown
+            mime in HTML_MIMES -> return SourceFormat.Html
+            mime == "application/pdf" -> return SourceFormat.Pdf
+            mime == "application/epub+zip" -> return SourceFormat.Epub
+            mime in DJVU_MIMES -> return SourceFormat.Djvu
         }
 
-        // 5. Sniff first 8 KB
+        // 6. Sniff first 8 KB
         val sniffLimit = minOf(bytes.size, 8192)
         val sample = TextDecoding.decode(bytes.copyOfRange(0, sniffLimit))
         val trimmedSample = sample.trimStart()
 
         if (trimmedSample.startsWith("<!DOCTYPE html", ignoreCase = true) ||
-            trimmedSample.startsWith("<html", ignoreCase = true)
+            trimmedSample.startsWith("<html", ignoreCase = true) ||
+            trimmedSample.startsWith("<FictionBook", ignoreCase = true) ||
+            (trimmedSample.startsWith("<?xml", ignoreCase = true) &&
+                (trimmedSample.contains("<FictionBook", ignoreCase = true) ||
+                    trimmedSample.contains("<html", ignoreCase = true)))
         ) {
             return SourceFormat.Html
         }
 
-        // Check strong Markdown & LaTeX signals
+        // Check strong Markdown, LaTeX, Org-mode, and AsciiDoc signals
         val hasHeading = HEADING_REGEX.containsMatchIn(sample)
         val hasFence = sample.contains("```")
         val hasTable = TABLE_REGEX.containsMatchIn(sample)
@@ -128,9 +159,9 @@ object FormatDetector {
         return SourceFormat.PlainText
     }
 
-    private val HEADING_REGEX = Regex("(?m)^#{1,6}\\s+\\S")
+    private val HEADING_REGEX = Regex("(?m)^(?:#{1,6}|\\*{1,4}|={1,4})\\s+\\S")
     private val TABLE_REGEX = Regex("(?m)^\\|[-:| ]+\\|$")
-    private val LATEX_SECTION_REGEX = Regex("(?m)^\\s*\\\\(?:section|subsection|chapter)\\*?\\{")
+    private val LATEX_SECTION_REGEX = Regex("(?m)^\\s*\\\\(?:documentclass|section|subsection|chapter|title)\\*?\\{")
     private val BOLD_REGEX = Regex("\\*\\*[^*\\n]+\\*\\*")
     private val LINK_REGEX = Regex("\\[[^\\]\\n]+\\]\\(https?://[^)\\n]+\\)")
     private val LIST_REGEX = Regex("(?m)^\\s*([-*+]|\\d+\\.)\\s+\\S")

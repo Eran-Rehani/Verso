@@ -65,6 +65,11 @@ class DocumentImporter(
                         context.ensureActive()
                     }
                 }
+                SourceFormat.Djvu -> {
+                    app.verso.core.djvu.DjvuExtractor.extract(source.bytes) {
+                        context.ensureActive()
+                    }
+                }
             }
         } catch (e: CancellationException) {
             throw e

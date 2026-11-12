@@ -70,7 +70,7 @@ class MigrationRecoveryTest {
 
     private fun openMigrated(name: String): VersoDatabase =
         Room.databaseBuilder(context, VersoDatabase::class.java, name)
-            .addMigrations(VersoDatabase.MIGRATION_1_2)
+            .addMigrations(VersoDatabase.MIGRATION_1_2, VersoDatabase.MIGRATION_2_3)
             .allowMainThreadQueries()
             .build()
 

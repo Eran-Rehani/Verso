@@ -116,13 +116,15 @@ private fun buildRichInlineResult(
             val latex = raw.substring(s, e)
             val parsedNode = LatexParser.parseEquation(latex).root
 
-            val use2DWidget = allow2DInlineWidgets &&
-                    contains2DConstruct(parsedNode) &&
-                    estimateWidthEm(parsedNode) <= 13.5f
+            val estimatedW = if (allow2DInlineWidgets && contains2DConstruct(parsedNode)) {
+                estimateWidthEm(parsedNode)
+            } else -1f
+
+            val use2DWidget = estimatedW in 0f..13.5f
 
             if (use2DWidget) {
                 val widgetId = "verso_inline_math_${widgetCounter++}_$s"
-                val widthEm = (estimateWidthEm(parsedNode) + 0.25f).coerceIn(1.1f, 14f)
+                val widthEm = (estimatedW + 0.25f).coerceIn(1.1f, 14f)
                 val heightEm = estimateHeightEm(parsedNode).coerceIn(1.3f, 3.0f)
 
                 appendInlineContent(id = widgetId, alternateText = LatexParser.toReadablePlainText(latex).ifBlank { latex })
@@ -457,19 +459,21 @@ private fun AnnotatedString.Builder.appendMathNodeInline(
     }
 }
 
+private val TWO_D_ACCENT_KINDS = java.util.EnumSet.of(
+    AccentKind.OVERLINE,
+    AccentKind.UNDERLINE,
+    AccentKind.WIDE_HAT,
+    AccentKind.WIDE_TILDE,
+    AccentKind.OVER_RIGHT_ARROW,
+    AccentKind.OVER_LEFT_ARROW
+)
+
 private fun contains2DConstruct(node: MathNode): Boolean = when (node) {
     is MathNode.Fraction -> true
     is MathNode.Sqrt -> true
     is MathNode.Matrix -> true
     is MathNode.Boxed -> true
-    is MathNode.Accent -> node.kind in setOf(
-        AccentKind.OVERLINE,
-        AccentKind.UNDERLINE,
-        AccentKind.WIDE_HAT,
-        AccentKind.WIDE_TILDE,
-        AccentKind.OVER_RIGHT_ARROW,
-        AccentKind.OVER_LEFT_ARROW
-    )
+    is MathNode.Accent -> node.kind in TWO_D_ACCENT_KINDS
     is MathNode.Delimited -> contains2DConstruct(node.content)
     is MathNode.SubSup -> node.limitsUnderOver ||
             (node.subscript != null && node.superscript != null) ||

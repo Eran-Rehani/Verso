@@ -23,13 +23,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Intake for shared text, pdf and epub -->
+            <!-- Intake for shared text, pdf, epub, djvu, fb2, and latex -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/*" />
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/x-tex" />
+                <data android:mimeType="application/x-latex" />
+                <data android:mimeType="application/x-fictionbook+xml" />
+                <data android:mimeType="image/vnd.djvu" />
+                <data android:mimeType="image/x-djvu" />
             </intent-filter>
 
             <!-- Intake for viewing documents by MIME -->
@@ -41,9 +46,19 @@
                 <data android:scheme="file" />
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/x-tex" />
+                <data android:mimeType="application/x-latex" />
+                <data android:mimeType="application/x-fictionbook+xml" />
+                <data android:mimeType="application/xhtml+xml" />
+                <data android:mimeType="image/vnd.djvu" />
+                <data android:mimeType="image/x-djvu" />
                 <data android:mimeType="text/plain" />
                 <data android:mimeType="text/markdown" />
                 <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="text/x-tex" />
+                <data android:mimeType="text/x-rst" />
+                <data android:mimeType="text/org" />
+                <data android:mimeType="text/asciidoc" />
                 <data android:mimeType="text/html" />
             </intent-filter>
 
@@ -57,8 +72,21 @@
                 <data android:mimeType="*/*" />
                 <data android:host="*" />
                 <data android:pathPattern=".*\\.md" />
-                <data android:pathPattern=".*\\.epub" />
                 <data android:pathPattern=".*\\.markdown" />
+                <data android:pathPattern=".*\\.mkd" />
+                <data android:pathPattern=".*\\.rmd" />
+                <data android:pathPattern=".*\\.qmd" />
+                <data android:pathPattern=".*\\.tex" />
+                <data android:pathPattern=".*\\.ltx" />
+                <data android:pathPattern=".*\\.latex" />
+                <data android:pathPattern=".*\\.epub" />
+                <data android:pathPattern=".*\\.pdf" />
+                <data android:pathPattern=".*\\.djvu" />
+                <data android:pathPattern=".*\\.djvo" />
+                <data android:pathPattern=".*\\.fb2" />
+                <data android:pathPattern=".*\\.rst" />
+                <data android:pathPattern=".*\\.org" />
+                <data android:pathPattern=".*\\.adoc" />
             </intent-filter>
         </activity>
     </application>

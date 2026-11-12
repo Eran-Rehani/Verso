@@ -1,5 +1,6 @@
 package app.verso.core.html
 
+import app.verso.core.markdown.MathProtector
 import app.verso.core.model.Block
 import app.verso.core.model.CodeBlock
 import app.verso.core.model.Divider
@@ -8,6 +9,7 @@ import app.verso.core.model.Heading
 import app.verso.core.model.ImageBlock
 import app.verso.core.model.InlineText
 import app.verso.core.model.ListItem
+import app.verso.core.model.MathBlock
 import app.verso.core.model.Paragraph
 import app.verso.core.model.Quote
 import app.verso.core.model.Span
@@ -21,15 +23,25 @@ import org.jsoup.nodes.TextNode
 
 object HtmlExtractor {
     private val IGNORED_TAGS = setOf(
-        "script", "style", "nav", "head", "noscript", "svg", "template", "iframe"
+        "script", "style", "nav", "head", "noscript", "svg", "template", "iframe",
+        "binary", "stylesheet", "document-info", "publish-info"
     )
+    private val WHITESPACE_SPLIT_REGEX = Regex("\\s+")
 
     fun extract(html: String): Document {
         if (html.isBlank()) return Document("", emptyList())
         val cleaned = TextCleaner.clean(html)
-        val soup = Jsoup.parse(cleaned)
-        val title = soup.title().trim()
-        val blocks = blocksOf(soup.body())
+        val isFb2 = cleaned.contains("<FictionBook", ignoreCase = true)
+        val soup = if (isFb2) {
+            Jsoup.parse(cleaned, "", org.jsoup.parser.Parser.xmlParser())
+        } else {
+            Jsoup.parse(cleaned)
+        }
+        val fb2Title = soup.selectFirst("book-title")?.text()?.trim().orEmpty()
+        val htmlTitle = if (isFb2) "" else soup.title().trim()
+        val title = fb2Title.ifBlank { htmlTitle }
+        val root = if (isFb2) (soup.selectFirst("body") ?: soup) else soup.body()
+        val blocks = blocksOf(root)
         return Document(title, blocks)
     }
 
@@ -56,18 +68,34 @@ object HtmlExtractor {
                     out.add(Heading(level, inline))
                 }
             }
-            "p" -> {
+            "book-title", "title" -> {
                 val inline = buildInline(element)
                 if (inline.text.isNotBlank()) {
-                    if (quoteDepth > 0) {
-                        out.add(Quote(quoteDepth - 1, inline))
-                    } else {
-                        out.add(Paragraph(inline))
+                    out.add(Heading(1, inline))
+                }
+            }
+            "subtitle" -> {
+                val inline = buildInline(element)
+                if (inline.text.isNotBlank()) {
+                    out.add(Heading(2, inline))
+                }
+            }
+            "p", "v" -> {
+                val rawDisplayMath = extractSingleDisplayMath(element.wholeText())
+                if (rawDisplayMath != null) {
+                    out.add(rawDisplayMath)
+                } else {
+                    val inline = buildInline(element)
+                    if (inline.text.isNotBlank()) {
+                        if (quoteDepth > 0 || tagName == "v") {
+                            out.add(Quote(quoteDepth.coerceAtLeast(0), inline))
+                        } else {
+                            out.add(Paragraph(inline))
+                        }
                     }
                 }
             }
-            "blockquote" -> {
-                // If blockquote has direct inline children, wrap them, else recurse
+            "blockquote", "epigraph", "cite", "poem", "stanza" -> {
                 val hasBlockChildren = element.children().any { isBlockTag(it.tagName()) }
                 if (!hasBlockChildren) {
                     val inline = buildInline(element)
@@ -75,15 +103,16 @@ object HtmlExtractor {
                         out.add(Quote(quoteDepth, inline))
                     }
                 } else {
+                    val nextDepth = if (tagName == "stanza") quoteDepth else quoteDepth + 1
                     for (child in element.children()) {
-                        processElement(child, out, listDepth, quoteDepth + 1)
+                        processElement(child, out, listDepth, nextDepth)
                     }
                 }
             }
             "pre" -> {
                 val codeChild = element.selectFirst("code")
                 val langClass = (codeChild?.className().orEmpty() + " " + element.className())
-                    .split("\\s+".toRegex())
+                    .split(WHITESPACE_SPLIT_REGEX)
                     .firstOrNull { it.startsWith("language-") }
                 val language = langClass?.removePrefix("language-")
                 val rawCode = element.wholeText()
@@ -98,12 +127,10 @@ object HtmlExtractor {
                 for (child in element.children()) {
                     if (child.tagName().equals("li", ignoreCase = true)) {
                         val marker = if (isOrdered) "${counter++}." else "•"
-                        // Process the li's direct text/inline contents
                         val inline = buildLiInline(child)
                         if (inline.text.isNotBlank()) {
                             out.add(ListItem(listDepth, marker, inline))
                         }
-                        // Then process any nested ul/ol children
                         for (nested in child.children()) {
                             if (nested.tagName().equals("ul", ignoreCase = true) ||
                                 nested.tagName().equals("ol", ignoreCase = true)
@@ -122,16 +149,14 @@ object HtmlExtractor {
                     out.add(tableBlock)
                 }
             }
-            "img" -> {
+            "img", "image" -> {
                 val alt = element.attr("alt")
                 out.add(ImageBlock(alt))
             }
-            "hr" -> {
-                out.add(Divider)
+            "hr", "empty-line" -> {
+                if (tagName == "hr") out.add(Divider)
             }
             else -> {
-                // Generic container like div, section, article, main, body
-                // Check if it contains mixed direct text nodes / inline elements
                 val childNodes = element.childNodes()
                 var currentInlineNodes = mutableListOf<Node>()
 
@@ -162,14 +187,27 @@ object HtmlExtractor {
         }
     }
 
+    private fun extractSingleDisplayMath(rawText: String): MathBlock? {
+        val trimmed = rawText.trim()
+        if ((trimmed.startsWith("$$") && trimmed.endsWith("$$") && trimmed.length > 4) ||
+            (trimmed.startsWith("\\[") && trimmed.endsWith("\\]") && trimmed.length > 4)
+        ) {
+            val inner = trimmed.substring(2, trimmed.length - 2).trim()
+            if (inner.isNotEmpty() && !inner.contains("$$") && !inner.contains("\\]")) {
+                return MathBlock(inner)
+            }
+        }
+        return null
+    }
+
     private fun isBlockTag(tagName: String): Boolean = when (tagName.lowercase()) {
         "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote",
-        "pre", "table", "hr", "div", "section", "article", "main", "figure", "figcaption", "header", "footer", "aside" -> true
+        "pre", "table", "hr", "div", "section", "article", "main", "figure", "figcaption", "header", "footer", "aside",
+        "book-title", "title", "subtitle", "epigraph", "poem", "stanza", "v", "empty-line", "body", "description", "title-info" -> true
         else -> false
     }
 
     private fun buildLiInline(li: Element): InlineText {
-        // Collect nodes excluding nested ul/ol
         val inlineNodes = li.childNodes().filterNot {
             it is Element && (it.tagName().equals("ul", ignoreCase = true) || it.tagName().equals("ol", ignoreCase = true))
         }
@@ -186,10 +224,17 @@ object HtmlExtractor {
         collectInline(nodes, sb, spans)
 
         val rawText = sb.toString()
-        // Collapse whitespace outside pre: [ \t\n\r\f\u00A0]+ -> single space
-        // Also remove U+00AD
         val withoutSoftHyphens = rawText.replace("\u00AD", "")
-        return collapseWhitespaceAndTrim(withoutSoftHyphens, spans)
+        val collapsed = collapseWhitespaceAndTrim(withoutSoftHyphens, spans)
+
+        // If the HTML/EPUB text contains inline LaTeX delimiters (\(...\) or $...$), protect and expand math spans
+        if (collapsed.text.contains('\\') || collapsed.text.contains('$')) {
+            val protected = MathProtector.protect(collapsed.text)
+            if (protected.math.isNotEmpty()) {
+                return MathProtector.expandPlaceholders(protected.text, collapsed.spans, protected.math)
+            }
+        }
+        return collapsed
     }
 
     private fun collectInline(
@@ -215,11 +260,11 @@ object HtmlExtractor {
                     if (end > start) {
                         when (tag) {
                             "b", "strong" -> spans.add(Span(start, end, SpanKind.Bold))
-                            "i", "em", "cite", "dfn" -> spans.add(Span(start, end, SpanKind.Italic))
+                            "i", "em", "emphasis", "cite", "dfn" -> spans.add(Span(start, end, SpanKind.Italic))
                             "code", "kbd", "samp", "tt" -> spans.add(Span(start, end, SpanKind.Code))
-                            "s", "del", "strike" -> spans.add(Span(start, end, SpanKind.Strike))
+                            "s", "del", "strike", "strikethrough" -> spans.add(Span(start, end, SpanKind.Strike))
                             "a" -> {
-                                val href = node.attr("href")
+                                val href = node.attr("href").ifBlank { node.attr("l:href") }.ifBlank { node.attr("xlink:href") }
                                 spans.add(Span(start, end, SpanKind.Link, href.ifBlank { null }))
                             }
                         }
@@ -258,7 +303,6 @@ object HtmlExtractor {
         }
         indexMap[raw.length] = out.length
 
-        // Trim leading and trailing whitespace from the whole result, and update spans
         var trimmed = out.toString()
         val leadingWs = trimmed.takeWhile { it == ' ' || it == '\n' }.length
         val trailingWs = trimmed.takeLastWhile { it == ' ' || it == '\n' }.length
@@ -289,7 +333,7 @@ object HtmlExtractor {
             firstRow.select("td").map { buildInline(it) }
         }
 
-        val dataRows = (if (isThHeader) rows.drop(1) else rows.drop(1)).map { row ->
+        val dataRows = rows.drop(1).map { row ->
             row.select("td, th").map { buildInline(it) }
         }
 

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 760" width="380" height="760">
+  <defs>
+    <filter id="shadow3" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <!-- Phone Frame (Sepia Theme) -->
+  <rect x="10" y="10" width="360" height="740" rx="34" fill="#1F2937" filter="url(#shadow3)"/>
+  <rect x="18" y="18" width="344" height="724" rx="28" fill="#F4ECD8"/>
+
+  <!-- Header -->
+  <text x="38" y="68" font-family="sans-serif" font-size="28" font-weight="bold" fill="#5B4636">Verso</text>
+  <text x="38" y="88" font-family="sans-serif" font-size="11" fill="#6F5E4D">Focused offline reader for Markdown, LaTeX, EPUB, PDF &amp; Text</text>
+
+  <!-- Primary Action Buttons -->
+  <rect x="38" y="104" width="146" height="40" rx="12" fill="#8A4B08"/>
+  <text x="82" y="129" font-family="sans-serif" font-size="13.5" font-weight="600" fill="#F4ECD8">Open file</text>
+  <rect x="196" y="104" width="146" height="40" rx="12" fill="#EADFC4"/>
+  <text x="251" y="129" font-family="sans-serif" font-size="13.5" font-weight="600" fill="#5B4636">Paste</text>
+
+  <!-- Sample Carousel Section -->
+  <text x="38" y="172" font-family="sans-serif" font-size="12" font-weight="bold" fill="#6F5E4D">Explore Sample Formats</text>
+
+  <!-- Sample Card 1 -->
+  <rect x="38" y="182" width="154" height="86" rx="12" fill="#EADFC4" stroke="#D8CBAA" stroke-width="1"/>
+  <rect x="48" y="192" width="64" height="16" rx="4" fill="#8A4B08" fill-opacity="0.16"/>
+  <text x="53" y="203" font-family="monospace" font-size="9" font-weight="bold" fill="#8A4B08">MD + MATH</text>
+  <text x="48" y="224" font-family="sans-serif" font-size="12" font-weight="bold" fill="#5B4636">Mathematical Physics</text>
+  <text x="48" y="241" font-family="sans-serif" font-size="10" fill="#6F5E4D">Inline &amp; display LaTeX,</text>
+  <text x="48" y="255" font-family="sans-serif" font-size="10" fill="#6F5E4D">matrices, and TOC</text>
+
+  <!-- Sample Card 2 -->
+  <rect x="200" y="182" width="154" height="86" rx="12" fill="#EADFC4" stroke="#D8CBAA" stroke-width="1"/>
+  <rect x="210" y="192" width="66" height="16" rx="4" fill="#8A4B08" fill-opacity="0.16"/>
+  <text x="215" y="203" font-family="monospace" font-size="9" font-weight="bold" fill="#8A4B08">LATEX .TEX</text>
+  <text x="210" y="224" font-family="sans-serif" font-size="12" font-weight="bold" fill="#5B4636">Path Integrals (.tex)</text>
+  <text x="210" y="241" font-family="sans-serif" font-size="10" fill="#6F5E4D">Standalone .tex paper</text>
+  <text x="210" y="255" font-family="sans-serif" font-size="10" fill="#6F5E4D">with \section macros</text>
+
+  <!-- Recent Documents Header -->
+  <text x="38" y="298" font-family="sans-serif" font-size="12.5" font-weight="bold" fill="#6F5E4D">Recent documents</text>
+  <text x="236" y="298" font-family="sans-serif" font-size="12" font-weight="600" fill="#8A4B08">View all in Library →</text>
+
+  <!-- Recent Item 1 -->
+  <text x="38" y="330" font-family="sans-serif" font-size="15.5" font-weight="600" fill="#5B4636">Quantum Path Integrals</text>
+  <text x="38" y="348" font-family="sans-serif" font-size="12" fill="#6F5E4D">Markdown · 72%</text>
+  <rect x="136" y="342" width="56" height="4" rx="2" fill="#D8CBAA"/>
+  <rect x="136" y="342" width="40" height="4" rx="2" fill="#8A4B08"/>
+  <line x1="38" y1="364" x2="342" y2="364" stroke="#D8CBAA" stroke-width="1"/>
+
+  <!-- Recent Item 2 -->
+  <text x="38" y="392" font-family="sans-serif" font-size="15.5" font-weight="600" fill="#5B4636">Algorithms &amp; Complexity</text>
+  <text x="38" y="410" font-family="sans-serif" font-size="12" fill="#6F5E4D">Markdown · 45%</text>
+  <rect x="136" y="404" width="56" height="4" rx="2" fill="#D8CBAA"/>
+  <rect x="136" y="404" width="25" height="4" rx="2" fill="#8A4B08"/>
+  <line x1="38" y1="426" x2="342" y2="426" stroke="#D8CBAA" stroke-width="1"/>
+
+  <!-- Recent Item 3 -->
+  <text x="38" y="454" font-family="sans-serif" font-size="15.5" font-weight="600" fill="#5B4636">Structure and Interpretation (EPUB)</text>
+  <text x="38" y="472" font-family="sans-serif" font-size="12" fill="#6F5E4D">Epub · 88%</text>
+  <rect x="112" y="466" width="56" height="4" rx="2" fill="#D8CBAA"/>
+  <rect x="112" y="466" width="49" height="4" rx="2" fill="#8A4B08"/>
+  <line x1="38" y1="488" x2="342" y2="488" stroke="#D8CBAA" stroke-width="1"/>
+
+  <!-- Recent Item 4 -->
+  <text x="38" y="516" font-family="sans-serif" font-size="15.5" font-weight="600" fill="#5B4636">Statistical Mechanics Lecture Notes</text>
+  <text x="38" y="534" font-family="sans-serif" font-size="12" fill="#6F5E4D">Pdf · 34%</text>
+  <rect x="104" y="528" width="56" height="4" rx="2" fill="#D8CBAA"/>
+  <rect x="104" y="528" width="19" height="4" rx="2" fill="#8A4B08"/>
+  <line x1="38" y1="550" x2="342" y2="550" stroke="#D8CBAA" stroke-width="1"/>
+
+  <!-- Recent Item 5 -->
+  <text x="38" y="578" font-family="sans-serif" font-size="15.5" font-weight="600" fill="#5B4636">Nonlinear Dynamics Monograph</text>
+  <text x="38" y="596" font-family="sans-serif" font-size="12" fill="#6F5E4D">Djvu · 60%</text>
+  <rect x="110" y="590" width="56" height="4" rx="2" fill="#D8CBAA"/>
+  <rect x="110" y="590" width="34" height="4" rx="2" fill="#8A4B08"/>
+
+  <!-- Bottom Navigation Bar -->
+  <line x1="18" y1="678" x2="362" y2="678" stroke="#D8CBAA" stroke-width="1"/>
+  <rect x="78" y="688" width="64" height="28" rx="14" fill="#EADFC4"/>
+  <text x="93" y="707" font-family="sans-serif" font-size="12" font-weight="bold" fill="#8A4B08">Home</text>
+  <text x="248" y="707" font-family="sans-serif" font-size="12" fill="#6F5E4D">Library</text>
+</svg>

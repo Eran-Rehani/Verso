@@ -33,5 +33,6 @@ enum class SourceFormat {
     Markdown,
     Html,
     Epub,
-    Pdf
+    Pdf,
+    Djvu
 }

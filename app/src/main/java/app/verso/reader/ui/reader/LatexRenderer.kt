@@ -574,6 +574,7 @@ private fun SqrtLayout(
     val hookWidthDp = (fontSizeSp * 0.55f).dp
     val topBarClearanceDp = 4.dp
     val degreeSizeSp = (fontSizeSp * 0.58f).coerceAtLeast(9f)
+    val reusablePath = remember { Path() }
 
     Layout(
         content = {
@@ -624,15 +625,15 @@ private fun SqrtLayout(
                 val tickPeakX = tickStartX + hookW * 0.25f
                 val valleyX = tickStartX + hookW * 0.55f
 
-                val path = Path().apply {
-                    moveTo(tickStartX, midY + (bottomY - midY) * 0.15f)
-                    lineTo(tickPeakX, midY)
-                    lineTo(valleyX, bottomY)
-                    lineTo(barStartX, topY)
-                    lineTo(totalW - strokePx * 0.5f, topY)
-                }
+                reusablePath.reset()
+                reusablePath.moveTo(tickStartX, midY + (bottomY - midY) * 0.15f)
+                reusablePath.lineTo(tickPeakX, midY)
+                reusablePath.lineTo(valleyX, bottomY)
+                reusablePath.lineTo(barStartX, topY)
+                reusablePath.lineTo(totalW - strokePx * 0.5f, topY)
+
                 drawPath(
-                    path = path,
+                    path = reusablePath,
                     color = color,
                     style = Stroke(
                         width = strokePx,
@@ -681,6 +682,7 @@ private fun ScalableDelimitedLayout(
     val strokeWidthDp = (fontSizeSp * 0.068f).coerceIn(1.1f, 2.2f).dp
     val leftWidthDp = if (left.isNotEmpty()) delimWidthDp else 0.dp
     val rightWidthDp = if (right.isNotEmpty()) delimWidthDp else 0.dp
+    val reusablePath = remember { Path() }
 
     Box(
         contentAlignment = Alignment.Center,
@@ -699,7 +701,8 @@ private fun ScalableDelimitedLayout(
                         width = leftWidthDp.toPx(),
                         height = h,
                         strokePx = strokePx,
-                        color = color
+                        color = color,
+                        reusablePath = reusablePath
                     )
                 }
                 if (right.isNotEmpty()) {
@@ -711,7 +714,8 @@ private fun ScalableDelimitedLayout(
                         width = rw,
                         height = h,
                         strokePx = strokePx,
-                        color = color
+                        color = color,
+                        reusablePath = reusablePath
                     )
                 }
             }
@@ -752,7 +756,8 @@ private fun DrawScope.drawScalableDelimiter(
     width: Float,
     height: Float,
     strokePx: Float,
-    color: Color
+    color: Color,
+    reusablePath: Path
 ) {
     val topY = strokePx
     val botY = height - strokePx
@@ -766,45 +771,41 @@ private fun DrawScope.drawScalableDelimiter(
             val openLeft = delim == "("
             val edgeX = if (openLeft) rightX else leftX
             val curveX = if (openLeft) leftX else rightX
-            val path = Path().apply {
-                moveTo(edgeX, topY)
-                cubicTo(curveX, height * 0.22f, curveX, height * 0.78f, edgeX, botY)
-            }
-            drawPath(path, color, style = style)
+            reusablePath.reset()
+            reusablePath.moveTo(edgeX, topY)
+            reusablePath.cubicTo(curveX, height * 0.22f, curveX, height * 0.78f, edgeX, botY)
+            drawPath(reusablePath, color, style = style)
         }
         "[", "]" -> {
             val openLeft = delim == "["
             val spineX = if (openLeft) leftX else rightX
             val tipX = if (openLeft) rightX else leftX
-            val path = Path().apply {
-                moveTo(tipX, topY)
-                lineTo(spineX, topY)
-                lineTo(spineX, botY)
-                lineTo(tipX, botY)
-            }
-            drawPath(path, color, style = style)
+            reusablePath.reset()
+            reusablePath.moveTo(tipX, topY)
+            reusablePath.lineTo(spineX, topY)
+            reusablePath.lineTo(spineX, botY)
+            reusablePath.lineTo(tipX, botY)
+            drawPath(reusablePath, color, style = style)
         }
         "⌊", "⌋" -> {
             val openLeft = delim == "⌊"
             val spineX = if (openLeft) leftX else rightX
             val tipX = if (openLeft) rightX else leftX
-            val path = Path().apply {
-                moveTo(spineX, topY)
-                lineTo(spineX, botY)
-                lineTo(tipX, botY)
-            }
-            drawPath(path, color, style = style)
+            reusablePath.reset()
+            reusablePath.moveTo(spineX, topY)
+            reusablePath.lineTo(spineX, botY)
+            reusablePath.lineTo(tipX, botY)
+            drawPath(reusablePath, color, style = style)
         }
         "⌈", "⌉" -> {
             val openLeft = delim == "⌈"
             val spineX = if (openLeft) leftX else rightX
             val tipX = if (openLeft) rightX else leftX
-            val path = Path().apply {
-                moveTo(tipX, topY)
-                lineTo(spineX, topY)
-                lineTo(spineX, botY)
-            }
-            drawPath(path, color, style = style)
+            reusablePath.reset()
+            reusablePath.moveTo(tipX, topY)
+            reusablePath.lineTo(spineX, topY)
+            reusablePath.lineTo(spineX, botY)
+            drawPath(reusablePath, color, style = style)
         }
         "{", "}" -> {
             val openLeft = delim == "{" || (isLeft && delim != "}")
@@ -812,27 +813,25 @@ private fun DrawScope.drawScalableDelimiter(
             val peakX = if (openLeft) leftX else rightX
             val spineX = (leftX + rightX) / 2f
             val r = minOf(width * 0.45f, height * 0.12f)
-            val path = Path().apply {
-                moveTo(tipX, topY)
-                quadraticTo(spineX, topY, spineX, topY + r)
-                lineTo(spineX, midY - r)
-                quadraticTo(spineX, midY, peakX, midY)
-                quadraticTo(spineX, midY, spineX, midY + r)
-                lineTo(spineX, botY - r)
-                quadraticTo(spineX, botY, tipX, botY)
-            }
-            drawPath(path, color, style = style)
+            reusablePath.reset()
+            reusablePath.moveTo(tipX, topY)
+            reusablePath.quadraticTo(spineX, topY, spineX, topY + r)
+            reusablePath.lineTo(spineX, midY - r)
+            reusablePath.quadraticTo(spineX, midY, peakX, midY)
+            reusablePath.quadraticTo(spineX, midY, spineX, midY + r)
+            reusablePath.lineTo(spineX, botY - r)
+            reusablePath.quadraticTo(spineX, botY, tipX, botY)
+            drawPath(reusablePath, color, style = style)
         }
         "⟨", "⟩" -> {
             val openLeft = delim == "⟨"
             val edgeX = if (openLeft) rightX else leftX
             val apexX = if (openLeft) leftX else rightX
-            val path = Path().apply {
-                moveTo(edgeX, topY)
-                lineTo(apexX, midY)
-                lineTo(edgeX, botY)
-            }
-            drawPath(path, color, style = style)
+            reusablePath.reset()
+            reusablePath.moveTo(edgeX, topY)
+            reusablePath.lineTo(apexX, midY)
+            reusablePath.lineTo(edgeX, botY)
+            drawPath(reusablePath, color, style = style)
         }
         "|" -> {
             val cx = (leftX + rightX) / 2f
@@ -860,6 +859,7 @@ private fun AccentLayout(
     val isUnder = kind == AccentKind.UNDERLINE || kind == AccentKind.UNDERBRACE
     val accentSpaceDp = (fontSizeSp * 0.26f).coerceIn(4f, 9f).dp
     val strokeWidthDp = (fontSizeSp * 0.065f).coerceIn(1.0f, 2.0f).dp
+    val reusablePath = remember { Path() }
 
     Box(
         contentAlignment = Alignment.Center,
@@ -889,12 +889,11 @@ private fun AccentLayout(
                         val ex = midX + span / 2f
                         val topPeakY = strokePx * 1.2f
                         val baseY = accentSpaceDp.toPx() * 0.85f
-                        val path = Path().apply {
-                            moveTo(sx, baseY)
-                            lineTo(midX, topPeakY)
-                            lineTo(ex, baseY)
-                        }
-                        drawPath(path, color, style = style)
+                        reusablePath.reset()
+                        reusablePath.moveTo(sx, baseY)
+                        reusablePath.lineTo(midX, topPeakY)
+                        reusablePath.lineTo(ex, baseY)
+                        drawPath(reusablePath, color, style = style)
                     }
                     AccentKind.CHECK -> {
                         val span = minOf(rightX - leftX, strokePx * 7f)
@@ -902,34 +901,31 @@ private fun AccentLayout(
                         val ex = midX + span / 2f
                         val topY = strokePx * 1.2f
                         val valleyY = accentSpaceDp.toPx() * 0.85f
-                        val path = Path().apply {
-                            moveTo(sx, topY)
-                            lineTo(midX, valleyY)
-                            lineTo(ex, topY)
-                        }
-                        drawPath(path, color, style = style)
+                        reusablePath.reset()
+                        reusablePath.moveTo(sx, topY)
+                        reusablePath.lineTo(midX, valleyY)
+                        reusablePath.lineTo(ex, topY)
+                        drawPath(reusablePath, color, style = style)
                     }
                     AccentKind.VEC, AccentKind.OVER_RIGHT_ARROW -> {
                         val y = accentSpaceDp.toPx() * 0.55f
                         val headSize = strokePx * 2.4f
                         drawLine(color, Offset(leftX, y), Offset(rightX, y), strokeWidth = strokePx, cap = StrokeCap.Round)
-                        val head = Path().apply {
-                            moveTo(rightX - headSize, y - headSize * 0.75f)
-                            lineTo(rightX, y)
-                            lineTo(rightX - headSize, y + headSize * 0.75f)
-                        }
-                        drawPath(head, color, style = style)
+                        reusablePath.reset()
+                        reusablePath.moveTo(rightX - headSize, y - headSize * 0.75f)
+                        reusablePath.lineTo(rightX, y)
+                        reusablePath.lineTo(rightX - headSize, y + headSize * 0.75f)
+                        drawPath(reusablePath, color, style = style)
                     }
                     AccentKind.OVER_LEFT_ARROW -> {
                         val y = accentSpaceDp.toPx() * 0.55f
                         val headSize = strokePx * 2.4f
                         drawLine(color, Offset(leftX, y), Offset(rightX, y), strokeWidth = strokePx, cap = StrokeCap.Round)
-                        val head = Path().apply {
-                            moveTo(leftX + headSize, y - headSize * 0.75f)
-                            lineTo(leftX, y)
-                            lineTo(leftX + headSize, y + headSize * 0.75f)
-                        }
-                        drawPath(head, color, style = style)
+                        reusablePath.reset()
+                        reusablePath.moveTo(leftX + headSize, y - headSize * 0.75f)
+                        reusablePath.lineTo(leftX, y)
+                        reusablePath.lineTo(leftX + headSize, y + headSize * 0.75f)
+                        drawPath(reusablePath, color, style = style)
                     }
                     AccentKind.TILDE, AccentKind.WIDE_TILDE -> {
                         val span = if (kind == AccentKind.WIDE_TILDE) (rightX - leftX) else minOf(rightX - leftX, strokePx * 8f)
@@ -937,11 +933,10 @@ private fun AccentLayout(
                         val ex = midX + span / 2f
                         val cy = accentSpaceDp.toPx() * 0.55f
                         val amp = strokePx * 1.8f
-                        val path = Path().apply {
-                            moveTo(sx, cy + amp * 0.5f)
-                            cubicTo(sx + span * 0.3f, cy - amp, sx + span * 0.7f, cy + amp, ex, cy - amp * 0.5f)
-                        }
-                        drawPath(path, color, style = style)
+                        reusablePath.reset()
+                        reusablePath.moveTo(sx, cy + amp * 0.5f)
+                        reusablePath.cubicTo(sx + span * 0.3f, cy - amp, sx + span * 0.7f, cy + amp, ex, cy - amp * 0.5f)
+                        drawPath(reusablePath, color, style = style)
                     }
                     AccentKind.DOT -> {
                         val cy = accentSpaceDp.toPx() * 0.5f
@@ -959,11 +954,10 @@ private fun AccentLayout(
                         val ex = midX + span / 2f
                         val topY = strokePx * 1.5f
                         val valleyY = accentSpaceDp.toPx() * 0.85f
-                        val path = Path().apply {
-                            moveTo(sx, topY)
-                            quadraticTo(midX, valleyY, ex, topY)
-                        }
-                        drawPath(path, color, style = style)
+                        reusablePath.reset()
+                        reusablePath.moveTo(sx, topY)
+                        reusablePath.quadraticTo(midX, valleyY, ex, topY)
+                        drawPath(reusablePath, color, style = style)
                     }
                     AccentKind.UNDERBRACE -> {
                         val y = h - strokePx * 1.5f

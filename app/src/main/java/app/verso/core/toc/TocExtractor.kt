@@ -1,5 +1,6 @@
 package app.verso.core.toc
 
+import androidx.compose.runtime.Immutable
 import app.verso.core.latex.LatexParser
 import app.verso.core.model.Block
 import app.verso.core.model.Document
@@ -9,6 +10,7 @@ import app.verso.core.model.Paragraph
 import app.verso.core.model.SpanKind
 import app.verso.core.model.plainText
 
+@Immutable
 data class TocEntry(
     val index: Int,
     val blockIndex: Int,
@@ -19,6 +21,7 @@ data class TocEntry(
 
 object TocExtractor {
 
+    private val WHITESPACE_REGEX = Regex("\\s+")
     private val CHAPTER_PATTERN = Regex(
         """^(?:Chapter|CHAPTER|Part|PART|Section|SECTION|Book|BOOK|Act|ACT|Scene|SCENE|Prologue|PROLOGUE|Epilogue|EPILOGUE|Introduction|INTRODUCTION|Conclusion|CONCLUSION|Appendix|APPENDIX)\b.*"""
     )
@@ -126,17 +129,24 @@ object TocExtractor {
         return emptyList()
     }
 
+    /**
+     * O(log N) binary search for the active TOC entry at [currentBlockIndex].
+     */
     fun activeEntryIndex(entries: List<TocEntry>, currentBlockIndex: Int): Int {
         if (entries.isEmpty()) return -1
-        var activeIdx = 0
-        for (i in entries.indices) {
-            if (entries[i].blockIndex <= currentBlockIndex) {
-                activeIdx = i
+        var low = 0
+        var high = entries.lastIndex
+        var best = 0
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (entries[mid].blockIndex <= currentBlockIndex) {
+                best = mid
+                low = mid + 1
             } else {
-                break
+                high = mid - 1
             }
         }
-        return activeIdx
+        return best
     }
 
     fun previousEntry(entries: List<TocEntry>, currentBlockIndex: Int): TocEntry? {
@@ -151,9 +161,24 @@ object TocExtractor {
         }
     }
 
+    /**
+     * O(log N) binary search for the first TOC entry strictly after [currentBlockIndex].
+     */
     fun nextEntry(entries: List<TocEntry>, currentBlockIndex: Int): TocEntry? {
         if (entries.isEmpty()) return null
-        return entries.firstOrNull { it.blockIndex > currentBlockIndex }
+        var low = 0
+        var high = entries.lastIndex
+        var candidate: TocEntry? = null
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (entries[mid].blockIndex > currentBlockIndex) {
+                candidate = entries[mid]
+                high = mid - 1
+            } else {
+                low = mid + 1
+            }
+        }
+        return candidate
     }
 
     fun formatInlineTitle(inlineText: InlineText): String {
@@ -163,7 +188,7 @@ object TocExtractor {
             .sortedBy { it.start }
 
         if (mathSpans.isEmpty()) {
-            return raw.replace(Regex("\\s+"), " ").trim()
+            return raw.replace(WHITESPACE_REGEX, " ").trim()
         }
 
         val sb = StringBuilder()
@@ -183,11 +208,11 @@ object TocExtractor {
         if (cursor < raw.length) {
             sb.append(raw.substring(cursor))
         }
-        return sb.toString().replace(Regex("\\s+"), " ").trim()
+        return sb.toString().replace(WHITESPACE_REGEX, " ").trim()
     }
 
     private fun extractSnippet(block: Block): String {
-        val text = block.plainText().replace(Regex("\\s+"), " ").trim()
+        val text = block.plainText().replace(WHITESPACE_REGEX, " ").trim()
         if (text.isEmpty()) return ""
         return if (text.length <= 42) text else text.take(40).trimEnd() + "…"
     }
