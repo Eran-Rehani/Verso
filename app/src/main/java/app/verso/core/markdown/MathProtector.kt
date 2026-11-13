@@ -16,15 +16,19 @@ object MathProtector {
         "align", "align*", "aligned",
         "gather", "gather*", "gathered",
         "multline", "multline*",
+        "flalign", "flalign*",
+        "alignat", "alignat*",
         "eqnarray", "eqnarray*",
         "displaymath",
-        "matrix", "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix",
-        "cases", "dcases", "split"
+        "matrix", "pmatrix", "bmatrix", "Bmatrix", "vmatrix", "Vmatrix", "smallmatrix",
+        "cases", "dcases", "split", "array"
     )
 
     private val INLINE_ENVS = setOf(
         "math"
     )
+
+    private val TRAILING_EQ_TAG_REGEX = Regex("""^\s*\(([0-9]+[a-zA-Z]?(?:\.[0-9]+[a-zA-Z]?)*|[ivxlcdmIVXLCDM]+|[A-Z]\.?[0-9]*)\)""")
 
     fun protect(markdown: String): Result {
         val mathList = mutableListOf<MathSpan>()
@@ -110,11 +114,18 @@ object MathProtector {
                 if (next == '[') {
                     val closeIdx = markdown.indexOf("\\]", i + 2)
                     if (closeIdx != -1) {
-                        val content = markdown.substring(i + 2, closeIdx).trim()
+                        var content = markdown.substring(i + 2, closeIdx).trim()
+                        var afterClose = closeIdx + 2
+                        val tagMatch = TRAILING_EQ_TAG_REGEX.find(markdown.substring(afterClose))
+                        if (tagMatch != null) {
+                            val tagVal = tagMatch.groupValues[1]
+                            content = "$content \\tag{$tagVal}"
+                            afterClose += tagMatch.range.last + 1
+                        }
                         val ph = "$OPEN${mathList.size}$CLOSE"
                         val isLineStart = atLineStart()
                         mathList.add(MathSpan(content, display = true))
-                        i = appendDisplayPlaceholder(ph, isLineStart, closeIdx + 2)
+                        i = appendDisplayPlaceholder(ph, isLineStart, afterClose)
                         continue
                     }
                 }
@@ -142,19 +153,28 @@ object MathProtector {
                                 val isDisplay = envName in DISPLAY_ENVS
                                 val innerBody = markdown.substring(envCloseBrace + 1, endIdx).trim()
                                 // Preserve matrix/cases/align wrapper so LatexParser knows the environment type
-                                val fullLatex = if (envName in setOf("equation", "equation*", "displaymath", "math")) {
+                                var fullLatex = if (envName in setOf("equation", "equation*", "displaymath", "math")) {
                                     innerBody
                                 } else {
                                     "\\begin{$envName}$innerBody\\end{$envName}"
+                                }
+                                var afterClose = endIdx + endTag.length
+                                if (isDisplay) {
+                                    val tagMatch = TRAILING_EQ_TAG_REGEX.find(markdown.substring(afterClose))
+                                    if (tagMatch != null) {
+                                        val tagVal = tagMatch.groupValues[1]
+                                        fullLatex = "$fullLatex \\tag{$tagVal}"
+                                        afterClose += tagMatch.range.last + 1
+                                    }
                                 }
                                 val ph = "$OPEN${mathList.size}$CLOSE"
                                 val isLineStart = atLineStart()
                                 mathList.add(MathSpan(fullLatex, display = isDisplay))
                                 i = if (isDisplay) {
-                                    appendDisplayPlaceholder(ph, isLineStart, endIdx + endTag.length)
+                                    appendDisplayPlaceholder(ph, isLineStart, afterClose)
                                 } else {
                                     sb.append(ph)
-                                    endIdx + endTag.length
+                                    afterClose
                                 }
                                 continue
                             }
@@ -187,11 +207,18 @@ object MathProtector {
             if (i + 1 < len && markdown[i] == '$' && markdown[i + 1] == '$') {
                 val closeIdx = markdown.indexOf("$$", i + 2)
                 if (closeIdx != -1) {
-                    val content = markdown.substring(i + 2, closeIdx).trim()
+                    var content = markdown.substring(i + 2, closeIdx).trim()
+                    var afterClose = closeIdx + 2
+                    val tagMatch = TRAILING_EQ_TAG_REGEX.find(markdown.substring(afterClose))
+                    if (tagMatch != null) {
+                        val tagVal = tagMatch.groupValues[1]
+                        content = "$content \\tag{$tagVal}"
+                        afterClose += tagMatch.range.last + 1
+                    }
                     val ph = "$OPEN${mathList.size}$CLOSE"
                     val isLineStart = atLineStart()
                     mathList.add(MathSpan(content, display = true))
-                    i = appendDisplayPlaceholder(ph, isLineStart, closeIdx + 2)
+                    i = appendDisplayPlaceholder(ph, isLineStart, afterClose)
                     continue
                 }
             }
@@ -200,9 +227,10 @@ object MathProtector {
             if (markdown[i] == '$') {
                 val nextChar = if (i + 1 < len) markdown[i + 1] else ' '
                 if (!nextChar.isWhitespace() && nextChar != '$') {
-                    // Look for matching closing $
+                    // Look for matching closing $ (allowing soft single newlines, but stopping at double newlines)
                     var closeIdx = -1
                     var k = i + 1
+                    var consecutiveNewlines = 0
                     while (k < len) {
                         if (markdown[k] == '\\') {
                             k += 2
@@ -217,8 +245,13 @@ object MathProtector {
                             }
                         }
                         if (markdown[k] == '\n') {
-                            // Inline $ cannot cross newlines
-                            break
+                            consecutiveNewlines++
+                            if (consecutiveNewlines >= 2 || (k - i) > 500) {
+                                // Inline $ cannot cross paragraph boundaries or exceed reasonable length
+                                break
+                            }
+                        } else if (!markdown[k].isWhitespace()) {
+                            consecutiveNewlines = 0
                         }
                         k++
                     }
@@ -239,6 +272,75 @@ object MathProtector {
         }
 
         return Result(sb.toString(), mathList)
+    }
+
+    /**
+     * Splits a text that may contain display math placeholders (`OPEN idx CLOSE`)
+     * into alternating paragraphs and [MathBlock]s. If no display math placeholders are found,
+     * invokes [onParagraph] with the expanded inline text.
+     */
+    fun splitDisplayMath(
+        text: String,
+        existingSpans: List<Span>,
+        mathList: List<MathSpan>,
+        onParagraph: (InlineText) -> Unit,
+        onMathBlock: (String) -> Unit
+    ) {
+        if (!text.contains(OPEN) || mathList.none { it.display }) {
+            val expanded = expandPlaceholders(text, existingSpans, mathList)
+            if (expanded.text.isNotBlank()) {
+                onParagraph(expanded)
+            }
+            return
+        }
+
+        var currentIndex = 0
+        while (currentIndex < text.length) {
+            val openPos = text.indexOf(OPEN, currentIndex)
+            if (openPos == -1) {
+                val remText = text.substring(currentIndex)
+                val exp = expandPlaceholders(remText, emptyList(), mathList)
+                if (exp.text.isNotBlank()) {
+                    onParagraph(exp)
+                }
+                break
+            }
+
+            val closePos = text.indexOf(CLOSE, openPos + 1)
+            if (closePos == -1) {
+                val remText = text.substring(currentIndex)
+                val exp = expandPlaceholders(remText, emptyList(), mathList)
+                if (exp.text.isNotBlank()) {
+                    onParagraph(exp)
+                }
+                break
+            }
+
+            val numStr = text.substring(openPos + 1, closePos)
+            val mathIdx = numStr.toIntOrNull()
+            if (mathIdx != null && mathIdx in mathList.indices && mathList[mathIdx].display) {
+                // Emit preceding text
+                if (openPos > currentIndex) {
+                    val preText = text.substring(currentIndex, openPos)
+                    val exp = expandPlaceholders(preText, emptyList(), mathList)
+                    if (exp.text.isNotBlank()) {
+                        onParagraph(exp)
+                    }
+                }
+                // Emit display MathBlock
+                onMathBlock(mathList[mathIdx].latex)
+                currentIndex = closePos + 1
+            } else {
+                // Regular inline math or non-display math placeholder, advance to next
+                val nextChunkEnd = closePos + 1
+                val chunkText = text.substring(currentIndex, nextChunkEnd)
+                val exp = expandPlaceholders(chunkText, emptyList(), mathList)
+                if (exp.text.isNotBlank()) {
+                    onParagraph(exp)
+                }
+                currentIndex = nextChunkEnd
+            }
+        }
     }
 
     fun expandPlaceholders(
@@ -293,5 +395,68 @@ object MathProtector {
         finalSpans.addAll(mathSpans)
 
         return InlineText(newText, finalSpans)
+    }
+
+    private val UNDELIMITED_LATEX_CMD_REGEX = Regex(
+        """\\(?:frac|dfrac|tfrac|cfrac|sqrt|sum|prod|int|iint|iiint|oint|lim|binom|vec|hat|widehat|bar|overline|underline|tilde|widetilde|dot|ddot|mathbb|mathcal|mathbf|mathrm|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|nabla|partial|infty|hbar|pm|mp|times|cdot|leq|geq|neq|approx|equiv|in|notin|subset|subseteq|cup|cap|to|rightarrow|Rightarrow|iff)\b(?:\s*(?:\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|\[[^\[\]]*\]|[_^](?:\{[^{}]*\}|\\[a-zA-Z]+|[a-zA-Z0-9])))*"""
+    )
+
+    private const val UNICODE_SCRIPT_CHARS = "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱ₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ"
+    private const val MATH_ATOM_PATTERN =
+        """(?:[√∛∜∫∬∭∮∑∏∂∇]\s*(?:\([^()]+\)|[a-zA-Zα-ωΑ-Ω0-9$UNICODE_SCRIPT_CHARS]+)|[a-zA-Zα-ωΑ-Ω0-9]+[$UNICODE_SCRIPT_CHARS]+|[a-zA-Zα-ωΑ-Ω0-9]+[_^](?:\{[^{}]*\}|[a-zA-Z0-9]+)|[a-zA-Zα-ωΑ-Ω]\([a-zA-Zα-ωΑ-Ω0-9,\s+\-−]+\)|(?<![a-zA-Z])[a-zA-Zα-ωΑ-Ω](?![a-zA-Z])|[0-9]+(?:\.[0-9]+)?)"""
+
+    private val UNDELIMITED_UNICODE_EQ_REGEX = Regex(
+        """$MATH_ATOM_PATTERN(?:\s*[+\-−·×*/±∓]\s*$MATH_ATOM_PATTERN)*\s*[=≠≤≥≈≡≔≕∈∉⊂⊆⊃⊇→⇒⇔]\s*$MATH_ATOM_PATTERN(?:\s*[+\-−·×*/±∓=≠≤≥≈≡]\s*$MATH_ATOM_PATTERN)*"""
+    )
+
+    /**
+     * Scans uncovered text segments in [inlineText] for undelimited LaTeX command formulas
+     * or inline Unicode mathematical equations and marks them with [SpanKind.Math].
+     */
+    fun detectUndelimitedInlineMath(inlineText: InlineText): InlineText {
+        val raw = inlineText.text
+        if (raw.length < 3) return inlineText
+
+        val hasPotentialMath = raw.contains('\\') || raw.contains('^') || raw.contains('_') ||
+            raw.any {
+                it in "=≠≤≥≈≡≔≕∈∉⊂⊆±∓√∛∜∫∑∏∂∇" ||
+                    it in '\u0370'..'\u03FF' ||
+                    it in "⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉"
+            }
+        if (!hasPotentialMath) return inlineText
+
+        val existingProtected = inlineText.spans.filter { it.kind == SpanKind.Math || it.kind == SpanKind.Code }
+        fun isOverlapping(start: Int, end: Int): Boolean {
+            return existingProtected.any { start < it.end && end > it.start }
+        }
+
+        val addedSpans = mutableListOf<Span>()
+
+        for (match in UNDELIMITED_LATEX_CMD_REGEX.findAll(raw)) {
+            var s = match.range.first
+            var e = match.range.last + 1
+            // Trim trailing punctuation like '.', ',', ';' that belongs to the sentence
+            while (e > s && (raw[e - 1] == '.' || raw[e - 1] == ',' || raw[e - 1] == ';' || raw[e - 1].isWhitespace())) {
+                e--
+            }
+            if (e - s >= 2 && !isOverlapping(s, e)) {
+                addedSpans.add(Span(s, e, SpanKind.Math))
+            }
+        }
+
+        for (match in UNDELIMITED_UNICODE_EQ_REGEX.findAll(raw)) {
+            val s = match.range.first
+            var e = match.range.last + 1
+            while (e > s && (raw[e - 1] == '.' || raw[e - 1] == ',' || raw[e - 1] == ';' || raw[e - 1].isWhitespace())) {
+                e--
+            }
+            val overlapsAdded = addedSpans.any { s < it.end && e > it.start }
+            if (e - s >= 3 && !isOverlapping(s, e) && !overlapsAdded) {
+                addedSpans.add(Span(s, e, SpanKind.Math))
+            }
+        }
+
+        if (addedSpans.isEmpty()) return inlineText
+        return InlineText(raw, inlineText.spans + addedSpans)
     }
 }

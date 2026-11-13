@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
@@ -75,6 +76,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.verso.core.bookmark.BookmarkHelper
 import app.verso.core.model.Document
 import app.verso.core.search.DocumentSearchMatch
@@ -83,9 +85,11 @@ import app.verso.core.search.DocumentSearcher
 import app.verso.core.store.ReaderSettings
 import app.verso.core.toc.TocExtractor
 import app.verso.reader.data.db.BookmarkEntity
+import app.verso.reader.tts.rememberReaderTtsController
 import app.verso.reader.ui.bookmark.BookmarksSidebarOverlay
 import app.verso.reader.ui.search.SearchResultsPanel
 import app.verso.reader.ui.toc.TocPanel
+import app.verso.reader.ui.tts.TtsPlayerBar
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
@@ -132,6 +136,13 @@ fun ReaderScreen(
     var searchResultsSheetOpen by rememberSaveable { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
 
+    // Interactive LaTeX Equation Inspector modal state
+    var inspectedEquationLatex by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // On-device Text-to-Speech (Read Aloud) controller & state
+    val ttsController = rememberReaderTtsController(document)
+    val ttsState by ttsController.state.collectAsStateWithLifecycle()
+
     val tocEntries = remember(document) {
         TocExtractor.extract(document)
     }
@@ -176,6 +187,16 @@ fun ReaderScreen(
         coroutineScope.launch {
             listState.animateScrollToItem(coerced, safeOffset)
             onAnchor(coerced, safeOffset)
+        }
+    }
+
+    // Auto-scroll to currently spoken block when Read Aloud is active
+    LaunchedEffect(ttsState.activeBlockIndex, ttsState.autoScroll) {
+        val spokenBlock = ttsState.activeBlockIndex
+        if (spokenBlock != null && ttsState.autoScroll && document.blocks.isNotEmpty()) {
+            val coerced = spokenBlock.coerceIn(0, document.blocks.lastIndex)
+            listState.animateScrollToItem(coerced, 0)
+            onAnchor(coerced, 0)
         }
     }
 
@@ -278,7 +299,7 @@ fun ReaderScreen(
                 start = settings.marginDp.dp,
                 end = settings.marginDp.dp,
                 top = 24.dp,
-                bottom = 96.dp
+                bottom = if (ttsState.isActive) 210.dp else 96.dp
             ),
             modifier = Modifier
                 .fillMaxSize()
@@ -307,8 +328,53 @@ fun ReaderScreen(
                 } else null
 
                 val blockBookmark = bookmarkedBlockMap[index]
+                val isTtsActiveBlock = ttsState.activeBlockIndex == index
 
-                Column(modifier = Modifier.padding(top = topGapDp)) {
+                val blockHighlightModifier = if (isTtsActiveBlock) {
+                    Modifier
+                        .padding(top = topGapDp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(palette.link.copy(alpha = 0.10f))
+                        .border(1.5.dp, palette.link.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .testTag("tts_active_block_$index")
+                } else if (ttsState.isActive) {
+                    Modifier
+                        .padding(top = topGapDp)
+                        .clickable { ttsController.jumpToBlock(index, autoPlay = true) }
+                } else {
+                    Modifier.padding(top = topGapDp)
+                }
+
+                Column(modifier = blockHighlightModifier) {
+                    if (isTtsActiveBlock) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .padding(bottom = 6.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(palette.link.copy(alpha = 0.18f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .testTag("tts_active_indicator_$index")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = "Reading aloud",
+                                tint = palette.link,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (ttsState.isPlaying) "Reading aloud" else "Paused here",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.link,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
                     if (blockBookmark != null) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -348,6 +414,7 @@ fun ReaderScreen(
                         palette = palette,
                         searchQuery = activeQuery,
                         activeMatchRawStart = activeRawStart,
+                        onInspectEquation = { latex -> inspectedEquationLatex = latex },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -619,6 +686,20 @@ fun ReaderScreen(
                         }
                     }
 
+                    // Read Aloud (Text-to-Speech) Toggle Button
+                    IconButton(
+                        onClick = {
+                            ttsController.toggleBar(currentBlockIndex)
+                        },
+                        modifier = Modifier.testTag("reader_tts_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = if (ttsState.isActive) "Stop Read Aloud" else "Read Aloud",
+                            tint = if (ttsState.isActive) palette.link else palette.text
+                        )
+                    }
+
                     IconButton(
                         onClick = onToggleSearch,
                         modifier = Modifier.testTag("reader_search_button")
@@ -655,9 +736,9 @@ fun ReaderScreen(
             }
         }
 
-        // Bottom quick chapter & TOC bar when chrome is visible and no sheet/sidebar/search is open
+        // Bottom quick chapter & TOC bar when chrome is visible and no sheet/sidebar/search/TTS is open
         AnimatedVisibility(
-            visible = chromeVisible && !searchOpen && !tocOpen && !settingsOpen && !bookmarksSidebarOpen && tocEntries.isNotEmpty(),
+            visible = chromeVisible && !ttsState.isActive && !searchOpen && !tocOpen && !settingsOpen && !bookmarksSidebarOpen && tocEntries.isNotEmpty(),
             enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -860,6 +941,26 @@ fun ReaderScreen(
             )
         }
 
+        // Floating Read Aloud (Text-to-Speech) Controller Bar
+        AnimatedVisibility(
+            visible = ttsState.isActive && !searchOpen && !tocOpen && !settingsOpen && !bookmarksSidebarOpen,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            TtsPlayerBar(
+                ttsState = ttsState,
+                totalDocumentBlocks = document.blocks.size,
+                palette = palette,
+                onPlayPause = { ttsController.togglePlayPause(currentBlockIndex) },
+                onPrevious = { ttsController.previousBlock() },
+                onNext = { ttsController.nextBlock() },
+                onCycleSpeed = { ttsController.cycleSpeed() },
+                onToggleAutoScroll = { ttsController.toggleAutoScroll() },
+                onStop = { ttsController.stop() }
+            )
+        }
+
         // Slide-in Right Sidebar for Saved Bookmarks
         BookmarksSidebarOverlay(
             visible = bookmarksSidebarOpen,
@@ -879,5 +980,15 @@ fun ReaderScreen(
             onUpdateBookmarkLabel = onUpdateBookmarkLabel,
             onClose = onCloseBookmarksSidebar
         )
+
+        val currentInspectedLatex = inspectedEquationLatex
+        if (currentInspectedLatex != null) {
+            LatexEquationInspectorDialog(
+                initialLatex = currentInspectedLatex,
+                settings = settings,
+                palette = palette,
+                onDismiss = { inspectedEquationLatex = null }
+            )
+        }
     }
 }

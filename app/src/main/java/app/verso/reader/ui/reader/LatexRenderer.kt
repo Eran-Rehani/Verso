@@ -1,23 +1,44 @@
 package app.verso.reader.ui.reader
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,11 +46,13 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -40,6 +63,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import app.verso.core.latex.AccentKind
 import app.verso.core.latex.LatexParser
 import app.verso.core.latex.MathFontStyle
@@ -47,6 +72,8 @@ import app.verso.core.latex.MathNode
 import app.verso.core.latex.MatrixEnvType
 import app.verso.core.latex.SymbolCategory
 import app.verso.core.store.ReaderSettings
+import app.verso.core.tts.TtsTextFormatter
+import kotlinx.coroutines.delay
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -55,11 +82,13 @@ fun MathBlockView(
     latex: String,
     settings: ReaderSettings,
     palette: ReaderPalette,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val parsed = remember(latex) { LatexParser.parseEquation(latex) }
     val readableDesc = remember(latex) { LatexParser.toReadablePlainText(latex) }
     val baseMathSizeSp = settings.fontSizeSp * 1.05f
+    val hScroll = rememberScrollState()
 
     Box(
         modifier = modifier
@@ -67,6 +96,13 @@ fun MathBlockView(
             .clip(RoundedCornerShape(10.dp))
             .background(palette.codeBackground.copy(alpha = 0.65f))
             .border(1.dp, palette.rule.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .semantics { contentDescription = readableDesc.ifBlank { latex } }
             .testTag("math_block_view")
@@ -78,7 +114,9 @@ fun MathBlockView(
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .horizontalScroll(hScroll)
             ) {
                 MathNodeView(
                     node = parsed.root,
@@ -105,7 +143,372 @@ fun MathBlockView(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun LatexEquationInspectorDialog(
+    initialLatex: String,
+    settings: ReaderSettings,
+    palette: ReaderPalette,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var activeLatex by remember(initialLatex) { mutableStateOf(initialLatex) }
+    var isEditingLatex by remember { mutableStateOf(false) }
+    var zoomScale by remember { mutableFloatStateOf(1.3f) }
+    var copiedLatex by remember { mutableStateOf(false) }
+    var copiedUnicode by remember { mutableStateOf(false) }
+
+    LaunchedEffect(copiedLatex) {
+        if (copiedLatex) {
+            delay(1500)
+            copiedLatex = false
+        }
+    }
+
+    LaunchedEffect(copiedUnicode) {
+        if (copiedUnicode) {
+            delay(1500)
+            copiedUnicode = false
+        }
+    }
+
+    val parsed = remember(activeLatex) { LatexParser.parseEquation(activeLatex) }
+    val readableUnicode = remember(activeLatex) { LatexParser.toReadablePlainText(activeLatex) }
+    val spokenMath = remember(activeLatex) { TtsTextFormatter.formatLatex(activeLatex) }
+    val renderedFontSizeSp = (settings.fontSizeSp * 1.25f * zoomScale).coerceIn(14f, 56f)
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .widthIn(max = 560.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(palette.background)
+                .border(1.dp, palette.rule.copy(alpha = 0.85f), RoundedCornerShape(16.dp))
+                .verticalScroll(rememberScrollState())
+                .padding(18.dp)
+                .testTag("latex_equation_inspector_dialog")
+        ) {
+            // Top Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Rendered LaTeX",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = palette.text
+                    )
+                    if (!parsed.tag.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(palette.link.copy(alpha = 0.15f))
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "(${parsed.tag})",
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.link
+                            )
+                        }
+                    }
+                }
+
+                // Zoom controls
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(palette.codeBackground)
+                        .border(1.dp, palette.rule.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                ) {
+                    IconButton(
+                        onClick = { zoomScale = (zoomScale - 0.2f).coerceAtLeast(0.8f) },
+                        modifier = Modifier
+                            .size(32.dp)
+                            .testTag("equation_zoom_out_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Remove,
+                            contentDescription = "Zoom out equation",
+                            tint = palette.text,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Text(
+                        text = "${(zoomScale * 100).roundToInt()}%",
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.link,
+                        modifier = Modifier
+                            .clickable { zoomScale = 1.3f }
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                            .testTag("equation_zoom_reset_button")
+                    )
+                    IconButton(
+                        onClick = { zoomScale = (zoomScale + 0.2f).coerceAtMost(2.5f) },
+                        modifier = Modifier
+                            .size(32.dp)
+                            .testTag("equation_zoom_in_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Zoom in equation",
+                            tint = palette.text,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .testTag("equation_inspector_close_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close rendered LaTeX view",
+                        tint = palette.muted
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Primary 2D Rendered LaTeX Stage
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 104.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(palette.codeBackground.copy(alpha = 0.8f))
+                    .border(1.2.dp, palette.link.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 18.dp, vertical = 22.dp)
+                    .testTag("equation_inspector_rendered_stage")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    MathNodeView(
+                        node = parsed.root,
+                        fontSizeSp = renderedFontSizeSp,
+                        color = palette.text,
+                        palette = palette,
+                        isDisplay = true,
+                        isTopLevel = true
+                    )
+
+                    if (!parsed.tag.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = "(${parsed.tag})",
+                            style = TextStyle(
+                                fontSize = (renderedFontSizeSp * 0.82f).sp,
+                                fontFamily = FontFamily.Serif,
+                                color = palette.muted
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Spoken & Unicode Math Summary
+            if (readableUnicode.isNotBlank() || spokenMath.isNotBlank()) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(palette.codeBackground.copy(alpha = 0.45f))
+                        .border(1.dp, palette.rule.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "READABLE MATH",
+                            fontSize = 10.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.muted
+                        )
+                        Text(
+                            text = if (copiedUnicode) "Copied" else "Copy Math",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.link,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    clipboard?.setPrimaryClip(ClipData.newPlainText("math", readableUnicode.ifBlank { activeLatex }))
+                                    copiedUnicode = true
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .testTag("equation_copy_unicode_button")
+                        )
+                    }
+
+                    if (readableUnicode.isNotBlank()) {
+                        Text(
+                            text = readableUnicode,
+                            fontSize = 14.5.sp,
+                            fontFamily = FontFamily.Serif,
+                            color = palette.text,
+                            modifier = Modifier.testTag("equation_unicode_text")
+                        )
+                    }
+
+                    if (spokenMath.isNotBlank()) {
+                        Text(
+                            text = "“$spokenMath”",
+                            fontSize = 12.5.sp,
+                            fontStyle = FontStyle.Italic,
+                            color = palette.muted,
+                            modifier = Modifier.testTag("equation_spoken_text")
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // LaTeX Source & Interactive Live Editor
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(palette.codeBackground)
+                    .border(1.dp, palette.rule.copy(alpha = 0.65f), RoundedCornerShape(10.dp))
+                    .testTag("equation_latex_source_box")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(palette.rule.copy(alpha = 0.25f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "LATEX SOURCE",
+                        fontSize = 10.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        color = palette.muted
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (activeLatex != initialLatex) {
+                            Text(
+                                text = "Reset",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = palette.muted,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { activeLatex = initialLatex }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    .testTag("equation_reset_latex_button")
+                            )
+                        }
+
+                        Text(
+                            text = if (isEditingLatex) "Done" else "Edit LaTeX",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.link,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { isEditingLatex = !isEditingLatex }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .testTag("equation_toggle_edit_button")
+                        )
+
+                        Text(
+                            text = if (copiedLatex) "Copied" else "Copy LaTeX",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = palette.link,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    clipboard?.setPrimaryClip(ClipData.newPlainText("latex", activeLatex))
+                                    copiedLatex = true
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .testTag("equation_copy_latex_button")
+                        )
+                    }
+                }
+
+                HorizontalDivider(thickness = 1.dp, color = palette.rule.copy(alpha = 0.45f))
+
+                if (isEditingLatex) {
+                    BasicTextField(
+                        value = activeLatex,
+                        onValueChange = { activeLatex = it },
+                        textStyle = TextStyle(
+                            fontSize = 13.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = palette.text
+                        ),
+                        cursorBrush = SolidColor(palette.link),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .testTag("equation_live_edit_input")
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = activeLatex,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = palette.text,
+                            modifier = Modifier.testTag("equation_latex_source_text")
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun MathNodeView(
     node: MathNode,
@@ -121,41 +524,19 @@ fun MathNodeView(
     when (node) {
         is MathNode.Row -> {
             if (node.children.isEmpty()) return
-            if (isTopLevel && node.children.size > 4) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    for (child in node.children) {
-                        Box(modifier = Modifier.align(Alignment.CenterVertically)) {
-                            MathNodeView(
-                                node = child,
-                                fontSizeSp = clampedSize,
-                                color = color,
-                                palette = palette,
-                                isDisplay = isDisplay,
-                                isTopLevel = false,
-                                fontStyleOverride = fontStyleOverride
-                            )
-                        }
-                    }
-                }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    for (child in node.children) {
-                        MathNodeView(
-                            node = child,
-                            fontSizeSp = clampedSize,
-                            color = color,
-                            palette = palette,
-                            isDisplay = isDisplay,
-                            isTopLevel = false,
-                            fontStyleOverride = fontStyleOverride
-                        )
-                    }
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (child in node.children) {
+                    MathNodeView(
+                        node = child,
+                        fontSizeSp = clampedSize,
+                        color = color,
+                        palette = palette,
+                        isDisplay = isDisplay,
+                        isTopLevel = false,
+                        fontStyleOverride = fontStyleOverride
+                    )
                 }
             }
         }

@@ -1,5 +1,6 @@
 package app.verso.reader.ui.reader
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.InlineTextContent
@@ -9,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.Placeholder
@@ -43,15 +45,17 @@ fun rememberRichInlineText(
     fontSizeSp: Float,
     palette: ReaderPalette,
     searchQuery: String? = null,
-    activeMatchRawStart: Int? = null
+    activeMatchRawStart: Int? = null,
+    onInspectEquation: ((String) -> Unit)? = null
 ): RichInlineRenderResult {
-    return remember(inlineText, fontSizeSp, palette, searchQuery, activeMatchRawStart) {
+    return remember(inlineText, fontSizeSp, palette, searchQuery, activeMatchRawStart, onInspectEquation) {
         buildRichInlineResult(
             inlineText = inlineText,
             fontSizeSp = fontSizeSp,
             palette = palette,
             searchQuery = searchQuery,
-            activeMatchRawStart = activeMatchRawStart
+            activeMatchRawStart = activeMatchRawStart,
+            onInspectEquation = onInspectEquation
         )
     }
 }
@@ -66,7 +70,8 @@ private fun buildRichInlineResult(
     palette: ReaderPalette,
     allow2DInlineWidgets: Boolean = true,
     searchQuery: String? = null,
-    activeMatchRawStart: Int? = null
+    activeMatchRawStart: Int? = null,
+    onInspectEquation: ((String) -> Unit)? = null
 ): RichInlineRenderResult {
     val raw = inlineText.text
     val spans = inlineText.spans
@@ -137,7 +142,16 @@ private fun buildRichInlineResult(
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (onInspectEquation != null) {
+                                    Modifier.clickable { onInspectEquation(latex) }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .testTag("inline_math_widget_$s")
                     ) {
                         MathNodeView(
                             node = parsedNode,
@@ -154,6 +168,24 @@ private fun buildRichInlineResult(
             }
 
             val mathEndInOut = this.length
+            if (onInspectEquation != null && mathEndInOut > mathStartInOut) {
+                addLink(
+                    LinkAnnotation.Clickable(
+                        tag = "inline_math_$s",
+                        styles = TextLinkStyles(
+                            style = SpanStyle(
+                                background = palette.codeBackground.copy(alpha = 0.35f)
+                            )
+                        ),
+                        linkInteractionListener = {
+                            onInspectEquation(latex)
+                        }
+                    ),
+                    mathStartInOut,
+                    mathEndInOut
+                )
+            }
+
             for (k in s..e) {
                 indexMap[k] = if (k == e) mathEndInOut else mathStartInOut
             }

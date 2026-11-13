@@ -33,7 +33,16 @@ object LatexSymbolMap {
         "varphi" to "φ",
         "chi" to "χ",
         "psi" to "ψ",
-        "omega" to "ω"
+        "omega" to "ω",
+        "eps" to "ε",
+        "vareps" to "ε",
+        "thet" to "θ",
+        "lam" to "λ",
+        "sig" to "σ",
+        "om" to "ω",
+        "al" to "α",
+        "be" to "β",
+        "ga" to "γ"
     )
 
     val GREEK_UPPER = mapOf(
@@ -210,7 +219,9 @@ object LatexSymbolMap {
         "because" to "∵",
         "triangleq" to "≜",
         "coloneqq" to "≔",
+        "coloneq" to "≔",
         "eqqcolon" to "≕",
+        "eqcolon" to "≕",
         "defeq" to "≔",
 
         // Arrows
@@ -248,7 +259,7 @@ object LatexSymbolMap {
         "Updownarrow" to "⇕",
         "nearrow" to "↗",
         "searrow" to "↘",
-        "swarrow" to "SW",
+        "swarrow" to "↙",
         "nwarrow" to "↖",
         "leadsto" to "⇝",
         "rightsquigarrow" to "⇝",
@@ -330,7 +341,19 @@ object LatexSymbolMap {
         "urcorner" to "⌝",
         "llcorner" to "⌞",
         "lrcorner" to "⌟",
-        "colon" to ":"
+        "colon" to ":",
+        "R" to "ℝ",
+        "N" to "ℕ",
+        "Z" to "ℤ",
+        "Q" to "ℚ",
+        "C" to "ℂ",
+        "Reals" to "ℝ",
+        "Complex" to "ℂ",
+        "Naturals" to "ℕ",
+        "Integers" to "ℤ",
+        "Rationals" to "ℚ",
+        "transpose" to "⊤",
+        "del" to "∇"
     )
 
     val BLACKBOARD_BOLD = mapOf(
@@ -390,6 +413,9 @@ object LatexSymbolMap {
         'p' to 'ₚ', 'r' to 'ᵣ', 's' to 'ₛ', 't' to 'ₜ', 'u' to 'ᵤ',
         'v' to 'ᵥ', 'x' to 'ₓ'
     )
+
+    val INVERSE_SUPERSCRIPT_MAP: Map<Char, Char> = SUPERSCRIPT_MAP.entries.associate { (k, v) -> v to k }
+    val INVERSE_SUBSCRIPT_MAP: Map<Char, Char> = SUBSCRIPT_MAP.entries.associate { (k, v) -> v to k }
 
     fun mapBlackboard(text: String): String =
         text.map { BLACKBOARD_BOLD[it] ?: it.toString() }.joinToString("")

@@ -116,6 +116,9 @@ object MarkdownExtractor {
     private val ORG_HEADING_REGEX = Regex("""(?m)^(\*{1,4})\s+(\S.*)$""")
     private val ADOC_HEADING_REGEX = Regex("""(?m)^(={1,4})\s+(\S.*)$""")
 
+    private val LATEX_NEWCOMMAND_REGEX = Regex("""(?m)^[ \t]*\\(?:newcommand|renewcommand|def)\*?\{\\([a-zA-Z]+)\}(?:\[[^\]]*\])?\{([^{}\n]+)\}[ \t]*$""")
+    private val LATEX_DEF_CMD_REGEX = Regex("""(?m)^[ \t]*\\def\\([a-zA-Z]+)\{([^{}\n]+)\}[ \t]*$""")
+
     private fun convertLatexVerbatimBlocks(input: String): String {
         if (!input.contains("\\begin{")) return input
         return input.replace(LATEX_VERBATIM_REGEX) { match ->
@@ -150,9 +153,30 @@ object MarkdownExtractor {
         val isLatexDoc = text.contains("\\documentclass") ||
             text.contains("\\begin{document}") ||
             text.contains("\\section") ||
-            text.contains("\\subsection")
+            text.contains("\\subsection") ||
+            text.contains("\\chapter") ||
+            text.contains("\\title{") ||
+            text.contains("\\author{") ||
+            text.contains("\\begin{")
 
         if (isLatexDoc) {
+            // Expand simple \newcommand{\foo}{replacement} and \def\foo{replacement}
+            val userMacros = mutableMapOf<String, String>()
+            for (m in LATEX_NEWCOMMAND_REGEX.findAll(text)) {
+                val cmdName = m.groupValues[1]
+                val replacement = m.groupValues[2]
+                if (cmdName.isNotEmpty() && replacement.isNotEmpty()) {
+                    userMacros[cmdName] = replacement
+                }
+            }
+            for (m in LATEX_DEF_CMD_REGEX.findAll(text)) {
+                val cmdName = m.groupValues[1]
+                val replacement = m.groupValues[2]
+                if (cmdName.isNotEmpty() && replacement.isNotEmpty()) {
+                    userMacros[cmdName] = replacement
+                }
+            }
+
             text = text.replace(LATEX_COMMENT_LINE_REGEX, "")
             text = text.replace(LATEX_PREAMBLE_DROP_REGEX, "")
             text = text.replace(LATEX_BEGIN_END_DOC_REGEX, "")
@@ -186,6 +210,10 @@ object MarkdownExtractor {
             text = text.replace(LATEX_REF_REGEX, "($1)")
             text = text.replace(LATEX_CITE_REGEX, "[$1]")
             text = text.replace(LATEX_QUOTES_REGEX, "“$1”")
+
+            for ((cmd, repl) in userMacros) {
+                text = text.replace("\\$cmd\\b".toRegex(), repl)
+            }
         }
 
         text = text.replace(LATEX_CHAPTER_REGEX, "# $1")
@@ -229,6 +257,22 @@ object MarkdownExtractor {
                         val mathBlock = checkDisplayMath(rawText, mathList)
                         if (mathBlock != null) {
                             out.add(mathBlock)
+                        } else if (rawText.contains(MathProtector.OPEN) && mathList.any { it.display }) {
+                            MathProtector.splitDisplayMath(
+                                text = rawText,
+                                existingSpans = emptyList(),
+                                mathList = mathList,
+                                onParagraph = { inline ->
+                                    if (quoteDepth > 0) {
+                                        out.add(Quote(quoteDepth - 1, inline))
+                                    } else {
+                                        out.add(Paragraph(inline))
+                                    }
+                                },
+                                onMathBlock = { displayLatex ->
+                                    out.add(MathBlock(displayLatex))
+                                }
+                            )
                         } else {
                             val inline = buildInline(current.firstChild, mathList)
                             if (inline.text.isNotBlank()) {

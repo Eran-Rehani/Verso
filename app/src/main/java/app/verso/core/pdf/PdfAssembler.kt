@@ -1,9 +1,11 @@
 package app.verso.core.pdf
 
+import app.verso.core.markdown.MathProtector
 import app.verso.core.model.Block
 import app.verso.core.model.Heading
 import app.verso.core.model.InlineText
 import app.verso.core.model.ListItem
+import app.verso.core.model.MathBlock
 import app.verso.core.model.Paragraph
 import app.verso.core.text.TextCleaner
 import kotlin.math.roundToInt
@@ -76,13 +78,58 @@ object PdfAssembler {
         var currentBulletX0 = 0f
         var lastLine: PdfLine? = null
 
+        var inDisplayMath = false
+        var displayMathClosingTag: String? = null
+        val displayMathLines = mutableListOf<String>()
+
         fun flush() {
+            if (inDisplayMath && displayMathLines.isNotEmpty()) {
+                val fullMath = displayMathLines.joinToString("\n")
+                blocks.add(MathBlock(fullMath))
+                inDisplayMath = false
+                displayMathClosingTag = null
+                displayMathLines.clear()
+            }
             val text = currentText.toString().trim()
             if (text.isNotEmpty()) {
+                val hasMath = text.contains('$') || text.contains('\\')
+                val protected = if (hasMath) MathProtector.protect(text) else null
+
                 when (currentType) {
-                    CurrentType.Heading -> blocks.add(Heading(currentLevel, InlineText.plain(text)))
-                    CurrentType.ListItem -> blocks.add(ListItem(0, currentBulletMarker, InlineText.plain(text)))
-                    CurrentType.Paragraph -> blocks.add(Paragraph(InlineText.plain(text)))
+                    CurrentType.Heading -> {
+                        val inline = if (protected != null && protected.math.isNotEmpty()) {
+                            MathProtector.expandPlaceholders(protected.text, emptyList(), protected.math)
+                        } else {
+                            InlineText.plain(text)
+                        }
+                        blocks.add(Heading(currentLevel, MathProtector.detectUndelimitedInlineMath(inline)))
+                    }
+                    CurrentType.ListItem -> {
+                        val inline = if (protected != null && protected.math.isNotEmpty()) {
+                            MathProtector.expandPlaceholders(protected.text, emptyList(), protected.math)
+                        } else {
+                            InlineText.plain(text)
+                        }
+                        blocks.add(ListItem(0, currentBulletMarker, MathProtector.detectUndelimitedInlineMath(inline)))
+                    }
+                    CurrentType.Paragraph -> {
+                        if (protected != null && protected.math.any { it.display }) {
+                            MathProtector.splitDisplayMath(
+                                text = protected.text,
+                                existingSpans = emptyList(),
+                                mathList = protected.math,
+                                onParagraph = { blocks.add(Paragraph(MathProtector.detectUndelimitedInlineMath(it))) },
+                                onMathBlock = { blocks.add(MathBlock(it)) }
+                            )
+                        } else {
+                            val inline = if (protected != null && protected.math.isNotEmpty()) {
+                                MathProtector.expandPlaceholders(protected.text, emptyList(), protected.math)
+                            } else {
+                                InlineText.plain(text)
+                            }
+                            blocks.add(Paragraph(MathProtector.detectUndelimitedInlineMath(inline)))
+                        }
+                    }
                     CurrentType.None -> {}
                 }
             }
@@ -92,6 +139,42 @@ object PdfAssembler {
 
         for (line in cleanedLines) {
             val leftMargin = marginMap[line.page to line.column] ?: 0f
+            val trimmedLine = line.text.trim()
+
+            // If we are currently buffering a multi-line display math block
+            if (inDisplayMath) {
+                val closing = displayMathClosingTag
+                if (closing != null && trimmedLine.contains(closing)) {
+                    val closeIdx = trimmedLine.indexOf(closing)
+                    val beforeClose = trimmedLine.substring(0, closeIdx).trim()
+                    if (beforeClose.isNotEmpty()) {
+                        displayMathLines.add(beforeClose)
+                    }
+                    val after = trimmedLine.substring(closeIdx + closing.length).trim()
+                    val tagMatch = Regex("""^\(([0-9]+[a-zA-Z]?(?:\.[0-9]+[a-zA-Z]?)*|[ivxlcdmIVXLCDM]+|[A-Z]\.?[0-9]*)\)""").find(after)
+                    var fullMath = displayMathLines.joinToString("\n").trim()
+                    if (tagMatch != null) {
+                        fullMath = "$fullMath \\tag{${tagMatch.groupValues[1]}}"
+                    }
+                    blocks.add(MathBlock(fullMath))
+                    inDisplayMath = false
+                    displayMathClosingTag = null
+                    displayMathLines.clear()
+                } else {
+                    displayMathLines.add(line.text)
+                }
+                lastLine = line
+                continue
+            }
+
+            // Check if line is an isolated equation number tag following a MathBlock: e.g. "(1)" or "(2.3)"
+            if (blocks.isNotEmpty() && blocks.last() is MathBlock && Regex("""^\(([0-9]+[a-zA-Z]?(?:\.[0-9]+[a-zA-Z]?)*|[ivxlcdmIVXLCDM]+|[A-Z]\.?[0-9]*)\)$""").matches(trimmedLine)) {
+                val lastBlock = blocks.removeAt(blocks.size - 1) as MathBlock
+                val tagStr = trimmedLine.removePrefix("(").removeSuffix(")")
+                blocks.add(MathBlock("${lastBlock.latex} \\tag{$tagStr}"))
+                lastLine = line
+                continue
+            }
 
             // Heading check
             val isBigHeading = line.fontSize >= (1.15f * bodySize)
@@ -149,6 +232,77 @@ object PdfAssembler {
                 continue
             }
 
+            // Display math checks: $$, \[, or \begin{env}
+            if (trimmedLine.startsWith("$$")) {
+                flush()
+                val closeIdx = trimmedLine.indexOf("$$", 2)
+                if (closeIdx != -1) {
+                    val raw = trimmedLine.substring(2, closeIdx).trim()
+                    val after = trimmedLine.substring(closeIdx + 2).trim()
+                    val tagMatch = Regex("""^\(([0-9]+[a-zA-Z]?(?:\.[0-9]+[a-zA-Z]?)*|[ivxlcdmIVXLCDM]+|[A-Z]\.?[0-9]*)\)""").find(after)
+                    val content = if (tagMatch != null) "$raw \\tag{${tagMatch.groupValues[1]}}" else raw
+                    blocks.add(MathBlock(content))
+                } else {
+                    inDisplayMath = true
+                    displayMathClosingTag = "$$"
+                    val rem = trimmedLine.removePrefix("$$").trim()
+                    if (rem.isNotEmpty()) displayMathLines.add(rem)
+                }
+                lastLine = line
+                continue
+            }
+
+            if (trimmedLine.startsWith("\\[")) {
+                flush()
+                val closeIdx = trimmedLine.indexOf("\\]", 2)
+                if (closeIdx != -1) {
+                    val raw = trimmedLine.substring(2, closeIdx).trim()
+                    val after = trimmedLine.substring(closeIdx + 2).trim()
+                    val tagMatch = Regex("""^\(([0-9]+[a-zA-Z]?(?:\.[0-9]+[a-zA-Z]?)*|[ivxlcdmIVXLCDM]+|[A-Z]\.?[0-9]*)\)""").find(after)
+                    val content = if (tagMatch != null) "$raw \\tag{${tagMatch.groupValues[1]}}" else raw
+                    blocks.add(MathBlock(content))
+                } else {
+                    inDisplayMath = true
+                    displayMathClosingTag = "\\]"
+                    val rem = trimmedLine.removePrefix("\\[").trim()
+                    if (rem.isNotEmpty()) displayMathLines.add(rem)
+                }
+                lastLine = line
+                continue
+            }
+
+            if (trimmedLine.startsWith("\\begin{")) {
+                val closeBrace = trimmedLine.indexOf('}', 7)
+                if (closeBrace != -1) {
+                    val envName = trimmedLine.substring(7, closeBrace).trim()
+                    val endTag = "\\end{$envName}"
+                    flush()
+                    if (trimmedLine.contains(endTag)) {
+                        val closeIdx = trimmedLine.indexOf(endTag)
+                        val after = trimmedLine.substring(closeIdx + endTag.length).trim()
+                        val tagMatch = Regex("""^\(([0-9]+[a-zA-Z]?(?:\.[0-9]+[a-zA-Z]?)*|[ivxlcdmIVXLCDM]+|[A-Z]\.?[0-9]*)\)""").find(after)
+                        val baseContent = trimmedLine.substring(0, closeIdx + endTag.length).trim()
+                        val content = if (tagMatch != null) "$baseContent \\tag{${tagMatch.groupValues[1]}}" else baseContent
+                        blocks.add(MathBlock(content))
+                    } else {
+                        inDisplayMath = true
+                        displayMathClosingTag = endTag
+                        displayMathLines.add(line.text)
+                    }
+                    lastLine = line
+                    continue
+                }
+            }
+
+            // Standalone formula line in PDF text
+            val isStandaloneFormulaLine = isDisplayFormulaLine(trimmedLine, line.fontSize, bodySize)
+            if (isStandaloneFormulaLine) {
+                flush()
+                blocks.add(MathBlock(trimmedLine))
+                lastLine = line
+                continue
+            }
+
             // Paragraph handling: check if new paragraph starts
             val prevEndedSentence = lastLine != null && SENTENCE_END_REGEX.containsMatchIn(currentText.toString().trim())
             val isNewParagraph = when {
@@ -201,6 +355,60 @@ object PdfAssembler {
 
         sb.append(" ").append(nextLine)
     }
+
+    private val MATH_OPERATOR_CHARS = setOf(
+        '=', '≤', '≥', '≠', '≈', '≡', '∈', '∉', '⊂', '⊆', '⊃', '⊇', '±', '∓',
+        '∑', '∏', '∫', '∂', '∇', '→', '⇒', '⇔', '↦', '≔', '≕', '∝', '⊥', '⊤',
+        '∠', '∀', '∃', '∄', '·', '×'
+    )
+
+    private fun isDisplayFormulaLine(text: String, fontSize: Float, bodySize: Float): Boolean {
+        if (text.length < 3 || text.length > 250) return false
+        // Must contain an equation relation or major math operator
+        val hasOp = text.any { it in MATH_OPERATOR_CHARS }
+        if (!hasOp) return false
+
+        // Check if line ends with equation number like (1), (2.3), [4]
+        val clean = text.replace(Regex("\\s*\\([0-9.]+\\)\\s*$"), "").trim()
+        if (clean.isEmpty()) return false
+
+        // Check density of math/symbol characters
+        var mathCharCount = 0
+        var proseLetterCount = 0
+        for (c in clean) {
+            when {
+                c in MATH_OPERATOR_CHARS || c == '+' || c == '-' || c == '−' || c == '/' || c == '*' || c == '^' || c == '_' -> mathCharCount++
+                c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}' || c == '|' -> mathCharCount++
+                c in '0'..'9' -> mathCharCount++
+                c in '\u0370'..'\u03FF' -> mathCharCount++ // Greek
+                c.isLetter() -> proseLetterCount++
+            }
+        }
+
+        // Standalone equation line check: if the line has 4+ plain prose words (not starting with '\'),
+        // it is a prose sentence with inline math rather than a standalone display equation.
+        val words = clean.split(Regex("\\s+")).filter {
+            it.length > 3 && !it.startsWith("\\") && it.all { ch -> ch.isLetter() }
+        }
+        val isSentence = words.size >= 4
+        if (isSentence) return false
+
+        // If it contains backslash commands like \frac, \sum, \int, and is not a prose sentence, it's display math
+        if (clean.contains("\\frac") || clean.contains("\\sum") || clean.contains("\\int") ||
+            clean.contains("\\sqrt") || clean.contains("\\partial") || clean.contains("\\nabla") ||
+            clean.contains("\\cdot") || clean.contains("\\times") || clean.contains("\\mathbf") ||
+            clean.contains("\\mathbb") || clean.contains("\\mathcal") || clean.contains("\\alpha") ||
+            clean.contains("\\beta") || clean.contains("\\theta") || clean.contains("\\lambda") ||
+            clean.contains("\\sigma") || clean.contains("\\omega")
+        ) {
+            return true
+        }
+
+        val hasRelation = clean.any { it in RELATION_CHARS }
+        return (mathCharCount >= 3) && hasRelation
+    }
+
+    private val RELATION_CHARS = setOf('=', '≈', '≤', '≥', '≠', '≡', '≔', '≕', '∼', '∝', '∈', '∉', '⊂', '⊆', '⊃', '⊇')
 
     private enum class CurrentType {
         None, Heading, ListItem, Paragraph

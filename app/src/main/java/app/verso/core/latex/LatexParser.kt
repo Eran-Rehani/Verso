@@ -119,6 +119,21 @@ object LatexParser {
             cleaned = cleaned.removeRange(tagMatch.range).trim()
         }
 
+        // Check for trailing equation tag like (1), (2.3), (A.1), \quad (1)
+        if (tag == null) {
+            val trailingTagRegex = Regex("""(?:\s*(?:\\quad\s*|,\s*|\.\s*|\s+))\(([0-9]+[a-zA-Z]?(?:\.[0-9]+[a-zA-Z]?)*|[ivxlcdmIVXLCDM]+|[A-Z]\.?[0-9]*)\)\s*[.,]?$""")
+            val m = trailingTagRegex.find(cleaned)
+            if (m != null) {
+                tag = m.groupValues[1].trim()
+                cleaned = cleaned.substring(0, m.range.first).trim()
+            }
+        }
+
+        // Strip trailing punctuation (e.g. "E = mc^2," or "f(x) = 0.")
+        if (cleaned.endsWith(",") || cleaned.endsWith(".")) {
+            cleaned = cleaned.substring(0, cleaned.length - 1).trim()
+        }
+
         // Remove surrounding display delimiters if still present
         if (cleaned.startsWith("$$") && cleaned.endsWith("$$") && cleaned.length >= 4) {
             cleaned = cleaned.substring(2, cleaned.length - 2).trim()
@@ -128,6 +143,22 @@ object LatexParser {
             cleaned = cleaned.substring(2, cleaned.length - 2).trim()
         } else if (cleaned.startsWith("$") && cleaned.endsWith("$") && cleaned.length >= 2) {
             cleaned = cleaned.substring(1, cleaned.length - 1).trim()
+        } else if (cleaned.startsWith("\\begin{equation}") && cleaned.endsWith("\\end{equation}") && cleaned.length >= 30) {
+            cleaned = cleaned.substring(16, cleaned.length - 14).trim()
+        } else if (cleaned.startsWith("\\begin{equation*}") && cleaned.endsWith("\\end{equation*}") && cleaned.length >= 32) {
+            cleaned = cleaned.substring(17, cleaned.length - 15).trim()
+        } else if (cleaned.startsWith("\\begin{displaymath}") && cleaned.endsWith("\\end{displaymath}") && cleaned.length >= 36) {
+            cleaned = cleaned.substring(19, cleaned.length - 17).trim()
+        }
+
+        // Strip any \label{...} from cleaned equation
+        cleaned = cleaned.replace(Regex("""\\label\{[^{}]*\}"""), "").trim()
+
+        // Check if there is another tag or trailing tag exposed after unwrapping
+        val secondTagMatch = TAG_REGEX.find(cleaned)
+        if (secondTagMatch != null) {
+            if (tag == null) tag = secondTagMatch.groupValues[1].trim()
+            cleaned = cleaned.removeRange(secondTagMatch.range).trim()
         }
 
         val node = parse(cleaned)
@@ -152,8 +183,8 @@ object LatexParser {
         if (trimmed.isEmpty()) return ""
         plainTextCache[trimmed]?.let { return it }
 
-        val node = parse(trimmed)
-        return nodeToPlainText(node).replace(WHITESPACE_REGEX, " ").trim().also {
+        val parsedEq = parseEquation(trimmed)
+        return nodeToPlainText(parsedEq.root).replace(WHITESPACE_REGEX, " ").trim().also {
             plainTextCache[trimmed] = it
         }
     }
@@ -486,6 +517,22 @@ object LatexParser {
                     pos++
                     val supNode = parseGroupOrSingleNode()
                     superscript = if (superscript == null) supNode else simplifyRow(listOf(superscript, supNode))
+                } else if (ch in LatexSymbolMap.INVERSE_SUPERSCRIPT_MAP) {
+                    val sb = java.lang.StringBuilder()
+                    while (pos < len && src[pos] in LatexSymbolMap.INVERSE_SUPERSCRIPT_MAP) {
+                        sb.append(LatexSymbolMap.INVERSE_SUPERSCRIPT_MAP[src[pos]])
+                        pos++
+                    }
+                    val supNode = MathNode.Symbol(sb.toString(), SymbolCategory.NUMBER)
+                    superscript = if (superscript == null) supNode else simplifyRow(listOf(superscript, supNode))
+                } else if (ch in LatexSymbolMap.INVERSE_SUBSCRIPT_MAP) {
+                    val sb = java.lang.StringBuilder()
+                    while (pos < len && src[pos] in LatexSymbolMap.INVERSE_SUBSCRIPT_MAP) {
+                        sb.append(LatexSymbolMap.INVERSE_SUBSCRIPT_MAP[src[pos]])
+                        pos++
+                    }
+                    val subNode = MathNode.Symbol(sb.toString(), SymbolCategory.NUMBER)
+                    subscript = if (subscript == null) subNode else simplifyRow(listOf(subscript, subNode))
                 } else {
                     break
                 }
@@ -533,23 +580,92 @@ object LatexParser {
                 return MathNode.Symbol(src.substring(start, pos), SymbolCategory.NUMBER)
             }
 
-            // Single ASCII letter -> italic math variable
+            // Single ASCII or Greek letter -> italic math variable
             if (ch.isLetter()) {
                 pos++
-                return MathNode.Symbol(ch.toString(), SymbolCategory.VARIABLE)
+                val s = ch.toString()
+                return MathNode.Symbol(s, SymbolCategory.VARIABLE)
             }
 
-            // Basic operators & relations
+            // Basic operators, relations & Unicode symbols
             pos++
             return when (ch) {
                 '+' -> MathNode.Symbol("+", SymbolCategory.OPERATOR)
-                '-' -> MathNode.Symbol("−", SymbolCategory.OPERATOR)
+                '-', '−', '–', '—' -> MathNode.Symbol("−", SymbolCategory.OPERATOR)
                 '=' -> MathNode.Symbol("=", SymbolCategory.OPERATOR)
                 '<' -> MathNode.Symbol("<", SymbolCategory.OPERATOR)
                 '>' -> MathNode.Symbol(">", SymbolCategory.OPERATOR)
-                '*' -> MathNode.Symbol("∗", SymbolCategory.OPERATOR)
+                '*', '×', '⋅', '·' -> MathNode.Symbol("·", SymbolCategory.OPERATOR)
+                '÷' -> MathNode.Symbol("÷", SymbolCategory.OPERATOR)
+                '±' -> MathNode.Symbol("±", SymbolCategory.OPERATOR)
+                '∓' -> MathNode.Symbol("∓", SymbolCategory.OPERATOR)
+                '≤', '⩽' -> MathNode.Symbol("≤", SymbolCategory.OPERATOR)
+                '≥', '⩾' -> MathNode.Symbol("≥", SymbolCategory.OPERATOR)
+                '≠' -> MathNode.Symbol("≠", SymbolCategory.OPERATOR)
+                '≈' -> MathNode.Symbol("≈", SymbolCategory.OPERATOR)
+                '≡' -> MathNode.Symbol("≡", SymbolCategory.OPERATOR)
+                '∈' -> MathNode.Symbol("∈", SymbolCategory.OPERATOR)
+                '∉' -> MathNode.Symbol("∉", SymbolCategory.OPERATOR)
+                '⊂' -> MathNode.Symbol("⊂", SymbolCategory.OPERATOR)
+                '⊆' -> MathNode.Symbol("⊆", SymbolCategory.OPERATOR)
+                '⊃' -> MathNode.Symbol("⊃", SymbolCategory.OPERATOR)
+                '⊇' -> MathNode.Symbol("⊇", SymbolCategory.OPERATOR)
+                '∩' -> MathNode.Symbol("∩", SymbolCategory.OPERATOR)
+                '∪' -> MathNode.Symbol("∪", SymbolCategory.OPERATOR)
+                '∧' -> MathNode.Symbol("∧", SymbolCategory.OPERATOR)
+                '∨' -> MathNode.Symbol("∨", SymbolCategory.OPERATOR)
+                '⊕' -> MathNode.Symbol("⊕", SymbolCategory.OPERATOR)
+                '⊗' -> MathNode.Symbol("⊗", SymbolCategory.OPERATOR)
+                '⊙' -> MathNode.Symbol("⊙", SymbolCategory.OPERATOR)
+                '≔' -> MathNode.Symbol("≔", SymbolCategory.OPERATOR)
+                '≕' -> MathNode.Symbol("≕", SymbolCategory.OPERATOR)
+                '∝' -> MathNode.Symbol("∝", SymbolCategory.OPERATOR)
+                '⊥' -> MathNode.Symbol("⊥", SymbolCategory.OPERATOR)
+                '⊤' -> MathNode.Symbol("⊤", SymbolCategory.OPERATOR)
+                '∠' -> MathNode.Symbol("∠", SymbolCategory.OPERATOR)
+                '∀' -> MathNode.Symbol("∀", SymbolCategory.OPERATOR)
+                '∃' -> MathNode.Symbol("∃", SymbolCategory.OPERATOR)
+                '∄' -> MathNode.Symbol("∄", SymbolCategory.OPERATOR)
+                '→', '⟶' -> MathNode.Symbol("→", SymbolCategory.OPERATOR)
+                '←', '⟵' -> MathNode.Symbol("←", SymbolCategory.OPERATOR)
+                '↔', '⟷' -> MathNode.Symbol("↔", SymbolCategory.OPERATOR)
+                '⇒', '⟹' -> MathNode.Symbol("⇒", SymbolCategory.OPERATOR)
+                '⇔', '⟺' -> MathNode.Symbol("⇔", SymbolCategory.OPERATOR)
+                '↦', '⟼' -> MathNode.Symbol("↦", SymbolCategory.OPERATOR)
+                '∑' -> MathNode.BigOp("∑", isIntegral = false)
+                '∏' -> MathNode.BigOp("∏", isIntegral = false)
+                '∫' -> MathNode.BigOp("∫", isIntegral = true)
+                '∮' -> MathNode.BigOp("∮", isIntegral = true)
+                '∬' -> MathNode.BigOp("∬", isIntegral = true)
+                '∭' -> MathNode.BigOp("∭", isIntegral = true)
+                '√' -> {
+                    val radicand = parseGroupOrSingleNode()
+                    MathNode.Sqrt(radicand = radicand, degree = null)
+                }
+                '∛' -> {
+                    val radicand = parseGroupOrSingleNode()
+                    MathNode.Sqrt(radicand = radicand, degree = MathNode.Symbol("3", SymbolCategory.NUMBER))
+                }
+                '∜' -> {
+                    val radicand = parseGroupOrSingleNode()
+                    MathNode.Sqrt(radicand = radicand, degree = MathNode.Symbol("4", SymbolCategory.NUMBER))
+                }
+                '∂' -> MathNode.Symbol("∂", SymbolCategory.VARIABLE)
+                '∇' -> MathNode.Symbol("∇", SymbolCategory.OPERATOR)
+                '∞' -> MathNode.Symbol("∞", SymbolCategory.NUMBER)
+                'ℏ', 'ħ' -> MathNode.Symbol("ℏ", SymbolCategory.VARIABLE)
+                'ℓ' -> MathNode.Symbol("ℓ", SymbolCategory.VARIABLE)
+                '∅' -> MathNode.Symbol("∅", SymbolCategory.VARIABLE)
+                '°' -> MathNode.Symbol("°", SymbolCategory.NUMBER)
                 '/' -> MathNode.Symbol("/", SymbolCategory.PUNCTUATION)
-                ':' -> MathNode.Symbol(":", SymbolCategory.OPERATOR)
+                ':' -> {
+                    if (pos < len && src[pos] == '=') {
+                        pos++
+                        MathNode.Symbol("≔", SymbolCategory.OPERATOR)
+                    } else {
+                        MathNode.Symbol(":", SymbolCategory.OPERATOR)
+                    }
+                }
                 '~' -> MathNode.Space(0.33f)
                 ',', ';', '!', '?', '.', '(', ')', '[', ']', '|' ->
                     MathNode.Symbol(ch.toString(), SymbolCategory.PUNCTUATION)
@@ -663,6 +779,56 @@ object LatexParser {
             if (cmd in DELIMITER_SIZING_COMMANDS) {
                 val d = readDelimiterToken()
                 return MathNode.Symbol(d, SymbolCategory.PUNCTUATION)
+            }
+
+            when (cmd) {
+                "abs" -> {
+                    val inner = parseGroupOrSingleNode()
+                    return MathNode.Delimited("|", inner, "|")
+                }
+                "norm" -> {
+                    val inner = parseGroupOrSingleNode()
+                    return MathNode.Delimited("‖", inner, "‖")
+                }
+                "bra" -> {
+                    val inner = parseGroupOrSingleNode()
+                    return MathNode.Delimited("⟨", inner, "|")
+                }
+                "ket" -> {
+                    val inner = parseGroupOrSingleNode()
+                    return MathNode.Delimited("|", inner, "⟩")
+                }
+                "braket", "innerp" -> {
+                    val inner = parseGroupOrSingleNode()
+                    return MathNode.Delimited("⟨", inner, "⟩")
+                }
+                "eqref" -> {
+                    val tag = parseRawGroupText()
+                    return MathNode.Symbol("($tag)", SymbolCategory.TEXT)
+                }
+                "ref" -> {
+                    val tag = parseRawGroupText()
+                    return MathNode.Symbol("($tag)", SymbolCategory.TEXT)
+                }
+                "label" -> {
+                    parseRawGroupText()
+                    return MathNode.Row(emptyList())
+                }
+                "tag" -> {
+                    parseRawGroupText()
+                    return MathNode.Row(emptyList())
+                }
+                "notag", "nonumber" -> {
+                    return MathNode.Row(emptyList())
+                }
+                "cite", "citep", "citet" -> {
+                    val key = parseRawGroupText()
+                    return MathNode.Symbol("[$key]", SymbolCategory.TEXT)
+                }
+                "intertext", "shortintertext" -> {
+                    val text = parseRawGroupText()
+                    return MathNode.Symbol(text, SymbolCategory.TEXT)
+                }
             }
 
             // 5. Overset, Underset, Stackrel

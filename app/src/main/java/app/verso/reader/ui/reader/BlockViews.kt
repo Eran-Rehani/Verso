@@ -63,8 +63,24 @@ fun BlockView(
     palette: ReaderPalette,
     searchQuery: String? = null,
     activeMatchRawStart: Int? = null,
+    onInspectEquation: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    var fallbackInspectedLatex by remember { mutableStateOf<String?>(null) }
+    val effectiveOnInspectEquation: (String) -> Unit = onInspectEquation ?: { latex ->
+        fallbackInspectedLatex = latex
+    }
+
+    val localLatex = fallbackInspectedLatex
+    if (localLatex != null && onInspectEquation == null) {
+        LatexEquationInspectorDialog(
+            initialLatex = localLatex,
+            settings = settings,
+            palette = palette,
+            onDismiss = { fallbackInspectedLatex = null }
+        )
+    }
+
     when (block) {
         is Paragraph -> {
             val rich = rememberRichInlineText(
@@ -72,7 +88,8 @@ fun BlockView(
                 fontSizeSp = settings.fontSizeSp,
                 palette = palette,
                 searchQuery = searchQuery,
-                activeMatchRawStart = activeMatchRawStart
+                activeMatchRawStart = activeMatchRawStart,
+                onInspectEquation = effectiveOnInspectEquation
             )
             Text(
                 text = rich.annotatedString,
@@ -88,7 +105,8 @@ fun BlockView(
                 fontSizeSp = headingStyle.fontSize.value,
                 palette = palette,
                 searchQuery = searchQuery,
-                activeMatchRawStart = activeMatchRawStart
+                activeMatchRawStart = activeMatchRawStart,
+                onInspectEquation = effectiveOnInspectEquation
             )
             Text(
                 text = rich.annotatedString,
@@ -105,7 +123,8 @@ fun BlockView(
                 fontSizeSp = settings.fontSizeSp,
                 palette = palette,
                 searchQuery = searchQuery,
-                activeMatchRawStart = activeMatchRawStart
+                activeMatchRawStart = activeMatchRawStart,
+                onInspectEquation = effectiveOnInspectEquation
             )
 
             Row(
@@ -138,7 +157,8 @@ fun BlockView(
                 fontSizeSp = settings.fontSizeSp,
                 palette = palette,
                 searchQuery = searchQuery,
-                activeMatchRawStart = activeMatchRawStart
+                activeMatchRawStart = activeMatchRawStart,
+                onInspectEquation = effectiveOnInspectEquation
             )
             Row(
                 modifier = modifier
@@ -277,6 +297,7 @@ fun BlockView(
                 latex = block.latex,
                 settings = settings,
                 palette = palette,
+                onClick = { effectiveOnInspectEquation(block.latex) },
                 modifier = mathBorderModifier
             )
         }
@@ -311,7 +332,8 @@ fun BlockView(
                                 fontSizeSp = (settings.fontSizeSp * 0.92f).coerceAtLeast(13f),
                                 palette = palette,
                                 searchQuery = searchQuery,
-                                activeMatchRawStart = null
+                                activeMatchRawStart = null,
+                                onInspectEquation = effectiveOnInspectEquation
                             )
 
                             Row(

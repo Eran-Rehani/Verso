@@ -57,12 +57,22 @@ object PlainTextExtractor {
                     }
                 }
 
-                val inline = if (mathList.isNotEmpty() && formattedText.contains(MathProtector.OPEN)) {
-                    MathProtector.expandPlaceholders(formattedText, emptyList(), mathList)
+                if (mathList.isNotEmpty() && formattedText.contains(MathProtector.OPEN)) {
+                    if (mathList.any { it.display }) {
+                        MathProtector.splitDisplayMath(
+                            text = formattedText,
+                            existingSpans = emptyList(),
+                            mathList = mathList,
+                            onParagraph = { blocks.add(Paragraph(MathProtector.detectUndelimitedInlineMath(it))) },
+                            onMathBlock = { blocks.add(MathBlock(it)) }
+                        )
+                    } else {
+                        val inline = MathProtector.expandPlaceholders(formattedText, emptyList(), mathList)
+                        blocks.add(Paragraph(MathProtector.detectUndelimitedInlineMath(inline)))
+                    }
                 } else {
-                    InlineText.plain(formattedText)
+                    blocks.add(Paragraph(MathProtector.detectUndelimitedInlineMath(InlineText.plain(formattedText))))
                 }
-                blocks.add(Paragraph(inline))
             }
         }
 

@@ -23,7 +23,7 @@ import org.jsoup.nodes.TextNode
 
 object HtmlExtractor {
     private val IGNORED_TAGS = setOf(
-        "script", "style", "nav", "head", "noscript", "svg", "template", "iframe",
+        "style", "nav", "head", "noscript", "svg", "template", "iframe",
         "binary", "stylesheet", "document-info", "publish-info"
     )
     private val WHITESPACE_SPLIT_REGEX = Regex("\\s+")
@@ -60,6 +60,38 @@ object HtmlExtractor {
         val tagName = element.tagName().lowercase()
         if (tagName in IGNORED_TAGS) return
 
+        // Handle MathML elements at block level
+        if (tagName == "math") {
+            val latex = MathMlConverter.toLatex(element)
+            if (latex.isNotBlank()) {
+                val isDisplay = MathMlConverter.isDisplayMath(element)
+                if (isDisplay) {
+                    out.add(MathBlock(latex))
+                } else {
+                    val inline = InlineText(latex, listOf(Span(0, latex.length, SpanKind.Math)))
+                    if (quoteDepth > 0) out.add(Quote(quoteDepth - 1, inline)) else out.add(Paragraph(inline))
+                }
+            }
+            return
+        }
+
+        // Handle MathJax/KaTeX script tags
+        if (tagName == "script") {
+            val typeAttr = element.attr("type").lowercase()
+            if (typeAttr.contains("math/tex") || typeAttr.contains("latex")) {
+                val tex = element.data().trim()
+                if (tex.isNotBlank()) {
+                    if (typeAttr.contains("mode=display")) {
+                        out.add(MathBlock(tex))
+                    } else {
+                        val inline = InlineText(tex, listOf(Span(0, tex.length, SpanKind.Math)))
+                        out.add(Paragraph(inline))
+                    }
+                }
+            }
+            return
+        }
+
         when (tagName) {
             "h1", "h2", "h3", "h4", "h5", "h6" -> {
                 val level = tagName[1].digitToInt()
@@ -81,10 +113,43 @@ object HtmlExtractor {
                 }
             }
             "p", "v" -> {
+                // Check if sole child is display mathML
+                val soleChild = element.children().singleOrNull()
+                if (soleChild != null && soleChild.tagName().equals("math", ignoreCase = true) && MathMlConverter.isDisplayMath(soleChild)) {
+                    val latex = MathMlConverter.toLatex(soleChild)
+                    if (latex.isNotBlank()) {
+                        out.add(MathBlock(latex))
+                        return
+                    }
+                }
+
                 val rawDisplayMath = extractSingleDisplayMath(element.wholeText())
                 if (rawDisplayMath != null) {
                     out.add(rawDisplayMath)
                 } else {
+                    val rawText = element.wholeText()
+                    if (rawText.contains("$$") || rawText.contains("\\[") || rawText.contains("\\begin{")) {
+                        val protected = MathProtector.protect(rawText)
+                        if (protected.math.any { it.display }) {
+                            MathProtector.splitDisplayMath(
+                                text = protected.text,
+                                existingSpans = emptyList(),
+                                mathList = protected.math,
+                                onParagraph = { inline ->
+                                    if (quoteDepth > 0 || tagName == "v") {
+                                        out.add(Quote(quoteDepth.coerceAtLeast(0), inline))
+                                    } else {
+                                        out.add(Paragraph(inline))
+                                    }
+                                },
+                                onMathBlock = { displayLatex ->
+                                    out.add(MathBlock(displayLatex))
+                                }
+                            )
+                            return
+                        }
+                    }
+
                     val inline = buildInline(element)
                     if (inline.text.isNotBlank()) {
                         if (quoteDepth > 0 || tagName == "v") {
@@ -203,7 +268,8 @@ object HtmlExtractor {
     private fun isBlockTag(tagName: String): Boolean = when (tagName.lowercase()) {
         "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote",
         "pre", "table", "hr", "div", "section", "article", "main", "figure", "figcaption", "header", "footer", "aside",
-        "book-title", "title", "subtitle", "epigraph", "poem", "stanza", "v", "empty-line", "body", "description", "title-info" -> true
+        "book-title", "title", "subtitle", "epigraph", "poem", "stanza", "v", "empty-line", "body", "description", "title-info",
+        "math" -> true
         else -> false
     }
 
@@ -250,6 +316,29 @@ object HtmlExtractor {
                 is Element -> {
                     val tag = node.tagName().lowercase()
                     if (tag in IGNORED_TAGS) continue
+                    if (tag == "math") {
+                        val latex = MathMlConverter.toLatex(node)
+                        if (latex.isNotBlank()) {
+                            val start = sb.length
+                            sb.append(latex)
+                            val end = sb.length
+                            spans.add(Span(start, end, SpanKind.Math))
+                        }
+                        continue
+                    }
+                    if (tag == "script") {
+                        val typeAttr = node.attr("type").lowercase()
+                        if (typeAttr.contains("math/tex") || typeAttr.contains("latex")) {
+                            val tex = node.data().trim()
+                            if (tex.isNotBlank()) {
+                                val start = sb.length
+                                sb.append(tex)
+                                val end = sb.length
+                                spans.add(Span(start, end, SpanKind.Math))
+                            }
+                        }
+                        continue
+                    }
                     if (tag == "br") {
                         sb.append("\n")
                         continue

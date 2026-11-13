@@ -550,6 +550,7 @@ fun FormatBadge(
         "EPUB" -> "EPUB"
         "DJVU", "DJVO" -> "DJVU"
         "MARKDOWN", "MD" -> "MD"
+        "LATEX", "TEX", "LTX" -> "TEX"
         "HTML", "HTM", "FB2" -> "HTML"
         "PLAINTEXT", "TXT" -> "TXT"
         else -> format.uppercase(Locale.ROOT).take(4)
@@ -560,6 +561,7 @@ fun FormatBadge(
         "EPUB" -> Color(0xFF1976D2)
         "DJVU" -> Color(0xFF7B1FA2)
         "MD" -> Color(0xFF388E3C)
+        "TEX" -> Color(0xFF00897B)
         "HTML" -> Color(0xFFE65100)
         else -> palette.rule
     }
