@@ -152,7 +152,7 @@ fun LatexEquationInspectorDialog(
 ) {
     val context = LocalContext.current
     var activeLatex by remember(initialLatex) { mutableStateOf(initialLatex) }
-    var isEditingLatex by remember { mutableStateOf(false) }
+    var isEditingLatex by remember(initialLatex) { mutableStateOf(false) }
     var zoomScale by remember { mutableFloatStateOf(1.3f) }
     var copiedLatex by remember { mutableStateOf(false) }
     var copiedUnicode by remember { mutableStateOf(false) }
@@ -441,7 +441,7 @@ fun LatexEquationInspectorDialog(
                             )
                         }
 
-                        if (isEditingLatex || (parsed.root as? MathNode.Symbol)?.rejectedSource == null) Text(
+                        if (isEditingLatex || activeLatex != initialLatex || (parsed.root as? MathNode.Symbol)?.rejectedSource == null) Text(
                             text = if (isEditingLatex) "Done" else "Edit LaTeX",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,

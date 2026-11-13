@@ -1,5 +1,6 @@
 package app.verso.reader
 
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -31,6 +32,19 @@ class LatexInspectorEditTest {
         compose.onNodeWithTag("equation_copy_latex_button").assertExists()
     }
 
+    @Test fun switchingEquationsClosesEditorBeforeShowingRejectedSource() {
+        val current = mutableStateOf("x")
+        compose.setContent {
+            LatexEquationInspectorDialog(current.value, ReaderSettings(), paletteFor(ThemeChoice.Light, false), {})
+        }
+        compose.onNodeWithTag("equation_toggle_edit_button").performClick()
+        val rejected = "x".repeat(16_385)
+        compose.runOnIdle { current.value = rejected }
+        compose.onNodeWithTag("equation_live_edit_input").assertDoesNotExist()
+        compose.onNodeWithTag("equation_toggle_edit_button").assertDoesNotExist()
+        compose.onNodeWithTag("equation_latex_source_text").assertTextEquals(rejected.take(160) + "…")
+    }
+
     @Test fun editCanBeCorrectedAfterCrossingParserLimit() {
         compose.setContent {
             LatexEquationInspectorDialog("x", ReaderSettings(), paletteFor(ThemeChoice.Light, false), {})
@@ -39,10 +53,19 @@ class LatexInspectorEditTest {
         val rejected = "{".repeat(65) + "x" + "}".repeat(65)
         compose.onNodeWithTag("equation_live_edit_input").performTextReplacement(rejected)
         compose.onNodeWithTag("equation_live_edit_input").assertExists().assertTextEquals(rejected)
-        compose.onNodeWithTag("equation_toggle_edit_button").assertExists()
+        compose.onNodeWithTag("equation_toggle_edit_button").performClick()
+        compose.onNodeWithTag("equation_live_edit_input").assertDoesNotExist()
+        compose.onNodeWithTag("equation_latex_source_text").assertTextEquals(rejected)
+        compose.onNodeWithTag("equation_copy_latex_button").assertExists()
+        compose.onNodeWithTag("equation_toggle_edit_button").performClick()
+        compose.onNodeWithTag("equation_live_edit_input").assertTextEquals(rejected)
         compose.onNodeWithTag("equation_live_edit_input").performTextReplacement("x+1")
         compose.onNodeWithTag("equation_live_edit_input").assertTextEquals("x+1")
         compose.onNodeWithTag("equation_toggle_edit_button").performClick()
         compose.onNodeWithTag("equation_latex_source_text").assertTextEquals("x+1")
+        compose.onNodeWithTag("equation_reset_latex_button").performClick()
+        compose.onNodeWithTag("equation_latex_source_text").assertTextEquals("x")
+        compose.onNodeWithTag("equation_toggle_edit_button").performClick()
+        compose.onNodeWithTag("equation_live_edit_input").assertTextEquals("x")
     }
 }
