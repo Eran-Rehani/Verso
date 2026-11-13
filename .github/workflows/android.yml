@@ -16,12 +16,13 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
-      - run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "platform-tools"
+        with:
+          packages: "platforms;android-36.1 build-tools;36.0.0 platform-tools"
       - uses: gradle/actions/setup-gradle@v4
       - name: Development signing key
         run: |
           test -f debug.keystore || keytool -genkeypair -keystore debug.keystore -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
-      - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleQa
       - uses: actions/upload-artifact@v4
         if: always()
         with:
