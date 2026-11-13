@@ -441,7 +441,7 @@ fun LatexEquationInspectorDialog(
                             )
                         }
 
-                        Text(
+                        if ((parsed.root as? MathNode.Symbol)?.rejectedSource == null) Text(
                             text = if (isEditingLatex) "Done" else "Edit LaTeX",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -473,7 +473,7 @@ fun LatexEquationInspectorDialog(
 
                 HorizontalDivider(thickness = 1.dp, color = palette.rule.copy(alpha = 0.45f))
 
-                if (isEditingLatex) {
+                if (isEditingLatex && (parsed.root as? MathNode.Symbol)?.rejectedSource == null) {
                     BasicTextField(
                         value = activeLatex,
                         onValueChange = { activeLatex = it },
@@ -496,7 +496,7 @@ fun LatexEquationInspectorDialog(
                             .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
                         Text(
-                            text = activeLatex,
+                            text = if ((parsed.root as? MathNode.Symbol)?.rejectedSource != null) activeLatex.take(160) + if (activeLatex.length > 160) "…" else "" else activeLatex,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace,
                             color = palette.text,
