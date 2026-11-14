@@ -52,6 +52,12 @@ android {
       // AI Studio.
       signingConfig = signingConfigs.getByName("release")
     }
+    create("qa") {
+      initWith(getByName("debug"))
+      signingConfig = signingConfigs.getByName("debugConfig")
+      applicationIdSuffix = ".testing"
+      matchingFallbacks += listOf("debug")
+    }
     debug {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.

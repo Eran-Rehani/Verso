@@ -370,7 +370,7 @@ private fun RecentItemRow(
         ) {
             Icon(
                 imageVector = Icons.Filled.Delete,
-                contentDescription = "Remove from recents",
+                contentDescription = "Remove from library",
                 tint = palette.muted
             )
         }

@@ -20,12 +20,15 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 
+class RemovalToken internal constructor(internal val book: BookEntity)
+
 /** The only application writer of library metadata and positions. */
-class BookRepository(private val database: VersoDatabase, private val dir: File) {
+class BookRepository(private val database: VersoDatabase, private val dir: File, private val decode: (String) -> Document = DocumentCodec::decode) {
     private val dao = database.bookDao()
     private val mutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private var initialized = false
+    private val removals = mutableMapOf<String, RemovalToken>()
 
     val allBooks: Flow<List<BookEntity>> = dao.getAllBooks()
 
@@ -93,42 +96,53 @@ class BookRepository(private val database: VersoDatabase, private val dir: File)
         }
         // Reconcile complete generations after interrupted commits, including repairs.
         File(dir, "items").listFiles().orEmpty().filter { it.isDirectory }.forEach { bookDir ->
-            bookDir.listFiles().orEmpty().filter { it.isDirectory }.sortedByDescending { it.lastModified() }.forEach { generation ->
+            var current = dao.getBookById(bookDir.name)
+            if (current?.availability == "DELETED") return@forEach
+            var currentFile = current?.let { payloadFile(it) }
+            var currentDoc = currentFile?.takeIf { it.isFile }?.let { decodeOrNull(it) }
+            bookDir.listFiles().orEmpty().filter { it.isDirectory }.sortedByDescending { it.lastModified() }.forEach generationLoop@{ generation ->
                 currentCoroutineContext().ensureActive()
                 val manifest = File(generation, "metadata.json")
-                if (!manifest.isFile) return@forEach
+                if (!manifest.isFile) return@generationLoop
                 val snapshot = try { json.decodeFromString<BookEntity>(manifest.readText()) } catch (e: Exception) { null }
-                if (snapshot == null || snapshot.id != bookDir.name) return@forEach
+                if (snapshot == null || snapshot.id != bookDir.name) return@generationLoop
                 val relative = generation.relativeTo(dir).invariantSeparatorsPath
                 // Trust only paths inside this generation, never paths supplied by a manifest.
-                val payload = safeFile("$relative/document.json")
-                val original = safeFile("$relative/source.bin")
-                val doc = payload?.takeIf { it.isFile }?.let { decodeOrNull(it) }
-                val candidate = snapshot.copy(
-                    payloadPath = "$relative/document.json", sourcePath = "$relative/source.bin",
-                    hasOriginal = original?.isFile == true,
-                    availability = when { payload?.isFile != true -> "MISSING"; doc == null -> "CORRUPT"; else -> "AVAILABLE" }
-                )
-                val current = dao.getBookById(candidate.id)
-                if (current == null) {
-                    dao.insertBook(candidate)
-                } else if (current.availability != "DELETED") {
-                    val currentOriginalExists = safeFile(current.sourcePath)?.isFile == true
-                    if (current.payloadPath == candidate.payloadPath) {
-                        dao.insertBook(current.copy(availability = candidate.availability, hasOriginal = currentOriginalExists))
-                    } else {
-                        val currentPayloadUsable = payloadFile(current)?.let { it.isFile && decodeOrNull(it) != null } == true
-                        if (!currentPayloadUsable && doc != null) {
-                            // Preserve live Room user data, even if the snapshot is older.
-                            dao.insertBook(current.copy(
-                                payloadPath = candidate.payloadPath, sourcePath = candidate.sourcePath,
-                                availability = "AVAILABLE", hasOriginal = candidate.hasOriginal,
-                                hasResources = candidate.hasResources, blockCount = doc.blocks.size
-                            ))
-                        } else if (currentPayloadUsable && !currentOriginalExists && candidate.hasOriginal) {
-                            // Reattach source independently: a healthy parsed revision stays authoritative.
-                            dao.insertBook(current.copy(sourcePath = candidate.sourcePath, hasOriginal = true))
-                        }
+                val payloadPath = "$relative/document.json"
+                val sourcePath = "$relative/source.bin"
+                val payload = safeFile(payloadPath)
+                val hasOriginal = safeFile(sourcePath)?.isFile == true
+                val row = current
+                if (row?.availability == "DELETED") return@generationLoop
+                if (row == null) {
+                    currentFile = payload
+                    currentDoc = payload?.takeIf { it.isFile }?.let { decodeOrNull(it) }
+                    current = snapshot.copy(
+                        payloadPath = payloadPath, sourcePath = sourcePath, hasOriginal = hasOriginal,
+                        availability = when { payload?.isFile != true -> "MISSING"; currentDoc == null -> "CORRUPT"; else -> "AVAILABLE" }
+                    )
+                    dao.insertBook(current!!)
+                } else if (row.payloadPath == payloadPath) {
+                    current = row.copy(
+                        availability = when { currentFile?.isFile != true -> "MISSING"; currentDoc == null -> "CORRUPT"; else -> "AVAILABLE" },
+                        hasOriginal = safeFile(row.sourcePath)?.isFile == true
+                    )
+                    dao.insertBook(current!!)
+                } else {
+                    val doc = if (currentDoc == null) payload?.takeIf { it.isFile }?.let { decodeOrNull(it) } else null
+                    if (doc != null) {
+                        // Preserve live Room user data, even if the snapshot is older.
+                        currentFile = payload
+                        currentDoc = doc
+                        current = row.copy(
+                            payloadPath = payloadPath, sourcePath = sourcePath, availability = "AVAILABLE",
+                            hasOriginal = hasOriginal, hasResources = snapshot.hasResources, blockCount = doc.blocks.size
+                        )
+                        dao.insertBook(current!!)
+                    } else if (currentDoc != null && safeFile(row.sourcePath)?.isFile != true && hasOriginal) {
+                        // Reattach source independently: a healthy parsed revision stays authoritative.
+                        current = row.copy(sourcePath = sourcePath, hasOriginal = true)
+                        dao.insertBook(current!!)
                     }
                 }
             }
@@ -188,7 +202,30 @@ class BookRepository(private val database: VersoDatabase, private val dir: File)
     }
 
     // Retaining files plus a tombstone prevents crash reconciliation resurrecting a deleted book.
-    suspend fun delete(id: String) = locked { dao.setAvailability(id, "DELETED") }
+    suspend fun delete(id: String): RemovalToken? = locked {
+        val book = database.withTransaction {
+            val current = dao.getBookById(id)?.takeIf { it.availability != "DELETED" }
+            if (current != null) dao.setAvailability(id, "DELETED")
+            current
+        } ?: return@locked null
+        RemovalToken(book).also { removals[id] = it }
+    }
+
+    suspend fun undoRemoval(token: RemovalToken): Boolean = locked {
+        if (removals[token.book.id] != token) return@locked false
+        val restored = database.withTransaction {
+            val current = dao.getBookById(token.book.id)
+            if (current?.availability != "DELETED" ||
+                current.payloadPath != token.book.payloadPath || current.sourcePath != token.book.sourcePath
+            ) false
+            else {
+                dao.setAvailability(token.book.id, token.book.availability)
+                true
+            }
+        }
+        removals.remove(token.book.id)
+        restored
+    }
 
     suspend fun count(): Int = locked { dao.getAllNow().count { it.availability != "DELETED" } }
 
@@ -286,7 +323,7 @@ class BookRepository(private val database: VersoDatabase, private val dir: File)
         return file.takeIf { it.toPath().startsWith(dir.canonicalFile.toPath()) }
     }
 
-    private fun decodeOrNull(file: File): Document? = try { DocumentCodec.decode(file.readText()) } catch (e: Exception) { null }
+    private fun decodeOrNull(file: File): Document? = try { decode(file.readText()) } catch (e: Exception) { null }
 
     companion object {
         fun idFor(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)

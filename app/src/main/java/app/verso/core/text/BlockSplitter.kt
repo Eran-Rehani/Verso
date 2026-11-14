@@ -12,6 +12,7 @@ object BlockSplitter {
     const val MAX_BLOCK_CHARS = 2500
 
     fun splitLong(blocks: List<Block>, maxChars: Int = MAX_BLOCK_CHARS): List<Block> {
+        require(maxChars > 0)
         val result = mutableListOf<Block>()
         for (block in blocks) {
             when (block) {
@@ -113,6 +114,15 @@ object BlockSplitter {
                 }
             }
 
+            // Math spans are atomic, even when they exceed the target chunk size.
+            var moveForward = false
+            while (true) {
+                val crossing = inline.spans.filter { it.kind == app.verso.core.model.SpanKind.Math && it.start < splitIdx && splitIdx < it.end }
+                if (crossing.isEmpty()) break
+                val start = crossing.minOf { it.start }
+                if (start <= offset) moveForward = true
+                splitIdx = if (moveForward) crossing.maxOf { it.end }.coerceAtMost(len) else start
+            }
             chunks.add(sliceInline(inline, offset, splitIdx))
             offset = splitIdx
         }

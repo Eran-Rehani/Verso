@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,12 +40,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -87,6 +94,7 @@ open class MainActivity : ComponentActivity() {
         setContent {
             val screen by viewModel.screen.collectAsStateWithLifecycle()
             val settings by viewModel.settings.collectAsStateWithLifecycle()
+            val settingsSaveError by viewModel.settingsSaveError.collectAsStateWithLifecycle()
             val recents by viewModel.recents.collectAsStateWithLifecycle()
             val books by viewModel.books.collectAsStateWithLifecycle()
             val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
@@ -171,7 +179,26 @@ open class MainActivity : ComponentActivity() {
                 )
             }
 
+            val snackbarHostState = remember { SnackbarHostState() }
+            LaunchedEffect(snackbarHostState) {
+                viewModel.removals.collect { token ->
+                    if (snackbarHostState.showSnackbar("Removed from library", "Undo") == SnackbarResult.ActionPerformed) {
+                        viewModel.undoRemoval(token)
+                    }
+                }
+            }
+
             MaterialTheme(colorScheme = colorScheme) {
+                if (settingsSaveError) {
+                    AlertDialog(
+                        onDismissRequest = viewModel::dismissSettingsSaveError,
+                        title = { Text("Settings not saved") },
+                        text = { Text("Your changes apply for this session, but could not be saved. Try again to keep them.") },
+                        confirmButton = { TextButton(onClick = viewModel::retrySettingsSave) { Text("Retry") } },
+                        dismissButton = { TextButton(onClick = viewModel::dismissSettingsSaveError) { Text("Dismiss") } }
+                    )
+                }
+
                 val openDocLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri: Uri? ->
@@ -187,6 +214,7 @@ open class MainActivity : ComponentActivity() {
                 when (val curScreen = screen) {
                     is Screen.Home -> {
                         Scaffold(
+                            snackbarHost = { SnackbarHost(snackbarHostState) },
                             bottomBar = {
                                 NavigationBar(
                                     containerColor = palette.background,
