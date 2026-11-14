@@ -40,6 +40,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +50,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -174,6 +179,15 @@ open class MainActivity : ComponentActivity() {
                 )
             }
 
+            val snackbarHostState = remember { SnackbarHostState() }
+            LaunchedEffect(snackbarHostState) {
+                viewModel.removals.collect { token ->
+                    if (snackbarHostState.showSnackbar("Removed from library", "Undo") == SnackbarResult.ActionPerformed) {
+                        viewModel.undoRemoval(token)
+                    }
+                }
+            }
+
             MaterialTheme(colorScheme = colorScheme) {
                 if (settingsSaveError) {
                     AlertDialog(
@@ -200,6 +214,7 @@ open class MainActivity : ComponentActivity() {
                 when (val curScreen = screen) {
                     is Screen.Home -> {
                         Scaffold(
+                            snackbarHost = { SnackbarHost(snackbarHostState) },
                             bottomBar = {
                                 NavigationBar(
                                     containerColor = palette.background,

@@ -20,12 +20,15 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 
+class RemovalToken internal constructor(internal val book: BookEntity)
+
 /** The only application writer of library metadata and positions. */
 class BookRepository(private val database: VersoDatabase, private val dir: File, private val decode: (String) -> Document = DocumentCodec::decode) {
     private val dao = database.bookDao()
     private val mutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private var initialized = false
+    private val removals = mutableMapOf<String, RemovalToken>()
 
     val allBooks: Flow<List<BookEntity>> = dao.getAllBooks()
 
@@ -199,7 +202,28 @@ class BookRepository(private val database: VersoDatabase, private val dir: File,
     }
 
     // Retaining files plus a tombstone prevents crash reconciliation resurrecting a deleted book.
-    suspend fun delete(id: String) = locked { dao.setAvailability(id, "DELETED") }
+    suspend fun delete(id: String): RemovalToken? = locked {
+        val book = database.withTransaction {
+            val current = dao.getBookById(id)?.takeIf { it.availability != "DELETED" }
+            if (current != null) dao.setAvailability(id, "DELETED")
+            current
+        } ?: return@locked null
+        RemovalToken(book).also { removals[id] = it }
+    }
+
+    suspend fun undoRemoval(token: RemovalToken): Boolean = locked {
+        if (removals[token.book.id] != token) return@locked false
+        val restored = database.withTransaction {
+            val current = dao.getBookById(token.book.id)
+            if (current != token.book.copy(availability = "DELETED")) false
+            else {
+                dao.setAvailability(token.book.id, token.book.availability)
+                true
+            }
+        }
+        removals.remove(token.book.id)
+        restored
+    }
 
     suspend fun count(): Int = locked { dao.getAllNow().count { it.availability != "DELETED" } }
 

@@ -10,6 +10,7 @@ import app.verso.core.model.*
 import app.verso.core.store.*
 import app.verso.reader.data.db.BookEntity
 import app.verso.reader.data.repository.BookRepository
+import app.verso.reader.data.repository.RemovalToken
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
@@ -241,8 +242,18 @@ class AppViewModel(
         _settingsSaveError.value = false
     }
 
+    private val removalEvents = Channel<RemovalToken>(Channel.UNLIMITED)
+    val removals = removalEvents.receiveAsFlow()
+
     fun delete(id: String) {
-        viewModelScope.launch { ready.await(); env.bookRepository.delete(id) }
+        viewModelScope.launch {
+            ready.await()
+            env.bookRepository.delete(id)?.let { removalEvents.send(it) }
+        }
+    }
+
+    fun undoRemoval(token: RemovalToken) {
+        viewModelScope.launch { ready.await(); env.bookRepository.undoRemoval(token) }
     }
 
     fun toggleBookmark(blockIndex: Int, offsetPx: Int = 0, label: String = "") {

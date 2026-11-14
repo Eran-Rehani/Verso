@@ -54,6 +54,41 @@ class LibraryPersistenceTest {
     }
 
     @Test
+    fun removalUndoPreservesDataAndRejectsReplacement() = runBlocking {
+        val dir = Files.createTempDirectory("verso-undo").toFile()
+        val db = database()
+        try {
+            val repo = BookRepository(db, dir)
+            val source = DocumentSource("book.md", "text/markdown", "book".toByteArray())
+            val book = repo.importDocument(source, document, SourceFormat.Markdown)
+            repo.updateAnchor(book.id, 4, 12)
+            repo.saveBookmark(book.id, document, 0, customLabel = "Saved")
+            val before = repo.getBook(book.id)!!
+            val bookmarks = repo.getBookmarks(book.id)
+            val token = repo.delete(book.id)!!
+            assertEquals(0, repo.count())
+            BookRepository(db, dir).initialize()
+            assertEquals("DELETED", repo.getBook(book.id)!!.availability)
+            assertTrue(repo.undoRemoval(token))
+            assertEquals(before, repo.getBook(book.id))
+            assertEquals(bookmarks, repo.getBookmarks(book.id))
+            assertEquals(document, repo.read(book.id))
+            val stale = repo.delete(book.id)!!
+            val replacement = repo.importDocument(source, document.copy(title = "Replacement"), SourceFormat.Markdown)
+            assertFalse(repo.undoRemoval(stale))
+            assertEquals(replacement, repo.getBook(book.id))
+            val newerRemoval = repo.delete(book.id)!!
+            assertFalse(repo.undoRemoval(stale))
+            assertEquals("DELETED", repo.getBook(book.id)!!.availability)
+            assertTrue(repo.undoRemoval(newerRemoval))
+            assertEquals(replacement, repo.getBook(book.id))
+        } finally {
+            db.close()
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun migrationPrefersValidJsonAndKeepsBackupsAndMissingRows() = runBlocking {
         val dir = Files.createTempDirectory("verso-legacy").toFile()
         val docs = File(dir, "docs").apply { mkdirs() }
