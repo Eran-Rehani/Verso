@@ -44,6 +44,8 @@ class AppViewModel(
     val screen = _screen.asStateFlow()
     private val _settings = MutableStateFlow(ReaderSettings())
     val settings = _settings.asStateFlow()
+    private val _settingsSaveError = MutableStateFlow(false)
+    val settingsSaveError = _settingsSaveError.asStateFlow()
     private val _currentTab = MutableStateFlow(MainTab.Home)
     val currentTab = _currentTab.asStateFlow()
     private val _books = MutableStateFlow<List<BookEntity>>(emptyList())
@@ -109,7 +111,16 @@ class AppViewModel(
             }
         }
         viewModelScope.launch(work) {
-            for (value in settingsWrites) env.settings.save(value)
+            for (value in settingsWrites) {
+                try {
+                    env.settings.save(value)
+                    _settingsSaveError.value = false
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _settingsSaveError.value = true
+                }
+            }
         }
     }
 
@@ -220,6 +231,14 @@ class AppViewModel(
         val coerced = value.coerced()
         _settings.value = coerced
         settingsWrites.trySend(coerced)
+    }
+
+    fun retrySettingsSave() {
+        settingsWrites.trySend(_settings.value)
+    }
+
+    fun dismissSettingsSaveError() {
+        _settingsSaveError.value = false
     }
 
     fun delete(id: String) {

@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +42,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -87,6 +89,7 @@ open class MainActivity : ComponentActivity() {
         setContent {
             val screen by viewModel.screen.collectAsStateWithLifecycle()
             val settings by viewModel.settings.collectAsStateWithLifecycle()
+            val settingsSaveError by viewModel.settingsSaveError.collectAsStateWithLifecycle()
             val recents by viewModel.recents.collectAsStateWithLifecycle()
             val books by viewModel.books.collectAsStateWithLifecycle()
             val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
@@ -172,6 +175,16 @@ open class MainActivity : ComponentActivity() {
             }
 
             MaterialTheme(colorScheme = colorScheme) {
+                if (settingsSaveError) {
+                    AlertDialog(
+                        onDismissRequest = viewModel::dismissSettingsSaveError,
+                        title = { Text("Settings not saved") },
+                        text = { Text("Your changes apply for this session, but could not be saved. Try again to keep them.") },
+                        confirmButton = { TextButton(onClick = viewModel::retrySettingsSave) { Text("Retry") } },
+                        dismissButton = { TextButton(onClick = viewModel::dismissSettingsSaveError) { Text("Dismiss") } }
+                    )
+                }
+
                 val openDocLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri: Uri? ->
