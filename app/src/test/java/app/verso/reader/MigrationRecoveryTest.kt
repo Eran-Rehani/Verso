@@ -287,6 +287,43 @@ class MigrationRecoveryTest {
     }
 
     @Test
+    fun reconciliationDecodesNoTombstonePayloads() = runBlocking {
+        val dir = newDir("verso-decode-deleted")
+        val db = Room.inMemoryDatabaseBuilder(context, VersoDatabase::class.java).build()
+        try {
+            db.bookDao().markMigration(LibraryMigration("legacy-v2", true))
+            repeat(5) { writeGeneration(dir, "deleted", document, token = "g$it", manifest = null) }
+            db.bookDao().insertBook(BookEntity(id = "deleted", title = "Deleted", format = "Markdown", availability = "DELETED"))
+            var decodes = 0
+            BookRepository(db, dir) { decodes++; DocumentCodec.decode(it) }.initialize()
+            assertEquals(0, decodes)
+            assertEquals("DELETED", db.bookDao().getBookById("deleted")!!.availability)
+        } finally { db.close(); dir.deleteRecursively() }
+    }
+
+    @Test
+    fun reconciliationDecodesHealthyActivePayloadOnceAcrossGenerations() = runBlocking {
+        val dir = newDir("verso-decode-healthy")
+        val db = Room.inMemoryDatabaseBuilder(context, VersoDatabase::class.java).build()
+        try {
+            db.bookDao().markMigration(LibraryMigration("legacy-v2", true))
+            val generations = (0..5).map { writeGeneration(dir, "healthy", document, token = "g$it", manifest = null) }
+            val row = json.decodeFromString<BookEntity>(File(generations.first(), "metadata.json").readText())
+            File(generations.first(), "source.bin").delete()
+            db.bookDao().insertBook(row.copy(title = "Keep", anchorBlock = 12))
+            var decodes = 0
+            BookRepository(db, dir) { decodes++; DocumentCodec.decode(it) }.initialize()
+            assertEquals(1, decodes)
+            val actual = db.bookDao().getBookById("healthy")!!
+            assertEquals(row.payloadPath, actual.payloadPath)
+            assertEquals("Keep", actual.title)
+            assertEquals(12, actual.anchorBlock)
+            assertTrue(actual.hasOriginal)
+            assertEquals(6, File(dir, "items/healthy").listFiles()!!.size)
+        } finally { db.close(); dir.deleteRecursively() }
+    }
+
+    @Test
     fun sourceReattachmentUsesFileRealityOnFirstRestartAndKeepsHealthyPayload() = runBlocking {
         val dir = newDir("verso-source-repair")
         val db = Room.inMemoryDatabaseBuilder(context, VersoDatabase::class.java).build()
