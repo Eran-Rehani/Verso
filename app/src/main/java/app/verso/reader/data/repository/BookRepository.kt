@@ -215,7 +215,9 @@ class BookRepository(private val database: VersoDatabase, private val dir: File,
         if (removals[token.book.id] != token) return@locked false
         val restored = database.withTransaction {
             val current = dao.getBookById(token.book.id)
-            if (current != token.book.copy(availability = "DELETED")) false
+            if (current?.availability != "DELETED" ||
+                current.payloadPath != token.book.payloadPath || current.sourcePath != token.book.sourcePath
+            ) false
             else {
                 dao.setAvailability(token.book.id, token.book.availability)
                 true
