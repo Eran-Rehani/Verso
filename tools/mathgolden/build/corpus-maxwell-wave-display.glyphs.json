@@ -1,0 +1,102 @@
+{
+  "case": "corpus-maxwell-wave",
+  "mode": "display",
+  "latex": "\\nabla^2 \\mathbf{E} - \\frac{1}{c^2}\\frac{\\partial^2 \\mathbf{E}}{\\partial t^2} = 0",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 95.676,
+  "pageHeight": 26.763,
+  "glyphs": [
+    {
+      "char": "∇",
+      "xMin": 0.5,
+      "yMin": 9.0956,
+      "xMax": 10.4623,
+      "yMax": 20.3813
+    },
+    {
+      "char": "2",
+      "xMin": 10.463,
+      "yMin": 7.6346,
+      "xMax": 14.6975,
+      "yMax": 14.6722
+    },
+    {
+      "char": "E",
+      "xMin": 15.195,
+      "yMin": 9.6455,
+      "xMax": 24.0227,
+      "yMax": 20.3813
+    },
+    {
+      "char": "−",
+      "xMin": 26.6768,
+      "yMin": 9.0956,
+      "xMax": 35.9755,
+      "yMax": 20.3813
+    },
+    {
+      "char": "c",
+      "xMin": 39.83,
+      "yMin": 17.9661,
+      "xMax": 44.8679,
+      "yMax": 28.5823
+    },
+    {
+      "char": "1",
+      "xMin": 41.789,
+      "yMin": 1.6183,
+      "xMax": 47.6423,
+      "yMax": 12.2943
+    },
+    {
+      "char": "2",
+      "xMin": 44.868,
+      "yMin": 17.3176,
+      "xMax": 49.1025,
+      "yMax": 24.3552
+    },
+    {
+      "char": "∂",
+      "xMin": 51.991,
+      "yMin": 1.6781,
+      "xMax": 58.1706,
+      "yMax": 12.2943
+    },
+    {
+      "char": "∂t",
+      "xMin": 54.292,
+      "yMin": 17.9661,
+      "xMax": 65.3446,
+      "yMax": 28.5823
+    },
+    {
+      "char": "2",
+      "xMin": 58.821,
+      "yMin": 0.1446,
+      "xMax": 63.0555,
+      "yMax": 7.1822
+    },
+    {
+      "char": "E",
+      "xMin": 63.553,
+      "yMin": 1.5585,
+      "xMax": 72.3807,
+      "yMax": 12.2943
+    },
+    {
+      "char": "2",
+      "xMin": 65.349,
+      "yMin": 17.3176,
+      "xMax": 69.5835,
+      "yMax": 24.3552
+    },
+    {
+      "char": "=0",
+      "xMin": 76.898,
+      "yMin": 9.7053,
+      "xMax": 95.1799,
+      "yMax": 20.3813
+    }
+  ]
+}

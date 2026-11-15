@@ -54,6 +54,86 @@ class LibraryPersistenceTest {
     }
 
     @Test
+    fun removalUndoPreservesDataAndRejectsReplacement() = runBlocking {
+        val dir = Files.createTempDirectory("verso-undo").toFile()
+        val db = database()
+        try {
+            val repo = BookRepository(db, dir)
+            val source = DocumentSource("book.md", "text/markdown", "book".toByteArray())
+            val book = repo.importDocument(source, document, SourceFormat.Markdown)
+            repo.updateAnchor(book.id, 4, 12)
+            repo.saveBookmark(book.id, document, 0, customLabel = "Saved")
+            val before = repo.getBook(book.id)!!
+            val bookmarks = repo.getBookmarks(book.id)
+            val token = repo.delete(book.id)!!
+            assertEquals(0, repo.count())
+            BookRepository(db, dir).initialize()
+            assertEquals("DELETED", repo.getBook(book.id)!!.availability)
+            assertTrue(repo.undoRemoval(token))
+            assertEquals(before, repo.getBook(book.id))
+            assertEquals(bookmarks, repo.getBookmarks(book.id))
+            assertEquals(document, repo.read(book.id))
+            val stale = repo.delete(book.id)!!
+            val replacement = repo.importDocument(source, document.copy(title = "Replacement"), SourceFormat.Markdown)
+            assertFalse(repo.undoRemoval(stale))
+            assertEquals(replacement, repo.getBook(book.id))
+            val newerRemoval = repo.delete(book.id)!!
+            assertFalse(repo.undoRemoval(stale))
+            assertEquals("DELETED", repo.getBook(book.id)!!.availability)
+            assertTrue(repo.undoRemoval(newerRemoval))
+            assertEquals(replacement, repo.getBook(book.id))
+        } finally {
+            db.close()
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun undoKeepsPositionSavedAfterRemoval() = runBlocking {
+        val dir = Files.createTempDirectory("verso-late-position").toFile()
+        val db = database()
+        try {
+            val repo = BookRepository(db, dir)
+            val book = repo.importDocument(
+                DocumentSource("book.md", "text/markdown", "book".toByteArray()),
+                document, SourceFormat.Markdown
+            )
+            val token = repo.delete(book.id)!!
+            repo.updateAnchor(book.id, 7, 24)
+            assertTrue(repo.undoRemoval(token))
+            val restored = repo.getBook(book.id)!!
+            assertEquals("AVAILABLE", restored.availability)
+            assertEquals(7, restored.anchorBlock)
+            assertEquals(24, restored.anchorOffsetPx)
+        } finally {
+            db.close()
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun oldUndoCannotRestoreReimportRemovedByAnotherRepository() = runBlocking {
+        val dir = Files.createTempDirectory("verso-reimport-undo").toFile()
+        val db = database()
+        try {
+            val first = BookRepository(db, dir)
+            val source = DocumentSource("book.md", "text/markdown", "book".toByteArray())
+            val book = first.importDocument(source, document, SourceFormat.Markdown)
+            val stale = first.delete(book.id)!!
+            val second = BookRepository(db, dir)
+            val replacement = second.importDocument(source, document.copy(title = "Replacement"), SourceFormat.Markdown)
+            val newToken = second.delete(book.id)!!
+            assertFalse(first.undoRemoval(stale))
+            assertEquals("DELETED", first.getBook(book.id)!!.availability)
+            assertTrue(second.undoRemoval(newToken))
+            assertEquals(replacement, second.getBook(book.id))
+        } finally {
+            db.close()
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun migrationPrefersValidJsonAndKeepsBackupsAndMissingRows() = runBlocking {
         val dir = Files.createTempDirectory("verso-legacy").toFile()
         val docs = File(dir, "docs").apply { mkdirs() }

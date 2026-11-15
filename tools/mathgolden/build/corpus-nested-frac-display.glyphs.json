@@ -1,0 +1,60 @@
+{
+  "case": "corpus-nested-frac",
+  "mode": "display",
+  "latex": "\\frac{\\partial}{\\partial t}\\left(\\frac{1}{c}\\frac{\\partial \\phi}{\\partial t}\\right)",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 56.608,
+  "pageHeight": 30.888,
+  "glyphs": [
+    {
+      "char": "∂t",
+      "xMin": 1.696,
+      "yMin": 18.3361,
+      "xMax": 12.7486,
+      "yMax": 28.9523
+    },
+    {
+      "char": "∂",
+      "xMin": 3.809,
+      "yMin": 2.0481,
+      "xMax": 9.9886,
+      "yMax": 12.6643
+    },
+    {
+      "char": "1",
+      "xMin": 25.023,
+      "yMin": 1.9883,
+      "xMax": 30.8763,
+      "yMax": 12.6643
+    },
+    {
+      "char": "c",
+      "xMin": 25.431,
+      "yMin": 18.3361,
+      "xMax": 30.4689,
+      "yMax": 28.9523
+    },
+    {
+      "char": "∂ϕ",
+      "xMin": 33.267,
+      "yMin": 2.0481,
+      "xMax": 47.0203,
+      "yMax": 12.6643
+    },
+    {
+      "char": "∂t",
+      "xMin": 34.618,
+      "yMin": 18.3361,
+      "xMax": 45.6706,
+      "yMax": 28.9523
+    },
+    {
+      "char": "!",
+      "xMin": 48.221,
+      "yMin": 0.4995,
+      "xMax": 56.1084,
+      "yMax": 6.8756
+    }
+  ]
+}

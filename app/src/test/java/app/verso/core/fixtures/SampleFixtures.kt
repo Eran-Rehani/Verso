@@ -1,43 +1,18 @@
-package app.verso.reader.sample
+package app.verso.core.fixtures
 
 import app.verso.core.importer.DocumentSource
 
-data class SampleDocumentSpec(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val badge: String,
-    val fileName: String,
-    val mimeType: String,
-    val content: String
-) {
-    fun toDocumentSource(): DocumentSource = DocumentSource(
-        name = fileName,
-        mimeType = mimeType,
-        bytes = content.toByteArray(Charsets.UTF_8)
-    )
-}
+/**
+ * Multi-format sample documents, kept as TEST fixtures only.
+ *
+ * These used to ship in the app as "Explore Sample Formats" cards. They were removed from
+ * the product surface at the user's request but retained here because they are the only
+ * broad end-to-end coverage of markdown/LaTeX/HTML/plain-text import, tables, code blocks,
+ * math spans and TOC extraction across all five supported formats.
+ */
+object SampleFixtures {
 
-object SampleDocuments {
-
-    val all: List<SampleDocumentSpec> by lazy {
-        listOf(
-            MATH_PHYSICS_MARKDOWN,
-            QUANTUM_LATEX_PAPER,
-            ALGORITHMS_TABLES_CODE_MD,
-            TYPOGRAPHY_HTML_ARTICLE,
-            MEDITATIONS_PLAIN_TEXT
-        )
-    }
-
-    val MATH_PHYSICS_MARKDOWN = SampleDocumentSpec(
-        id = "math_physics_md",
-        title = "Mathematical Analysis & Physics Primer",
-        subtitle = "Inline & display LaTeX, matrices, integrals, and multi-level TOC",
-        badge = "MD + MATH",
-        fileName = "Mathematical_Physics_Primer.md",
-        mimeType = "text/markdown",
-        content = """
+    private val MATH_PHYSICS_MARKDOWN_CONTENT = """
 # Mathematical Analysis & Physics Primer
 
 Welcome to **Verso**. Use the **Table of Contents** button in the top bar (or the bottom chapter bar) to jump between chapters, tap **Search** to find keywords, or tap the **Bookmark** icon to save pages to the sidebar. All inline and display \(\LaTeX\) equations are typeset natively.
@@ -93,17 +68,14 @@ The time-dependent Schrödinger wave equation governs the evolution of the state
 In vacuum, the electric field \(\vec{E}\) and magnetic field \(\vec{B}\) satisfy the coupled system:
 
 \[\begin{aligned} \nabla \cdot \vec{E} &= \frac{\rho}{\varepsilon_0} \\ \nabla \cdot \vec{B} &= 0 \\ \nabla \times \vec{E} &= -\frac{\partial \vec{B}}{\partial t} \\ \nabla \times \vec{B} &= \mu_0 \vec{J} + \mu_0 \varepsilon_0 \frac{\partial \vec{E}}{\partial t} \end{aligned} \tag{4.2}\]
-        """.trimIndent()
+        """
+
+    val MATH_PHYSICS_MARKDOWN = SampleDocumentSpec(
+        id = "Mathematical_Physics_Primer.md" , fileName = "Mathematical_Physics_Primer.md", mimeType = "text/markdown",
+        content = MATH_PHYSICS_MARKDOWN_CONTENT,
     )
 
-    val QUANTUM_LATEX_PAPER = SampleDocumentSpec(
-        id = "quantum_latex_tex",
-        title = "Path Integrals & Harmonic Oscillators",
-        subtitle = "Standalone .tex paper with \\section macros, aligned equations, and matrices",
-        badge = "LATEX .TEX",
-        fileName = "Quantum_Path_Integrals.tex",
-        mimeType = "application/x-tex",
-        content = """
+    private val QUANTUM_LATEX_PAPER_CONTENT = """
 \section{Feynman Path Integral Formulation}
 
 In non-relativistic quantum mechanics, the transition amplitude \(K(x_b, t_b; x_a, t_a)\) between initial position \(x_a\) and final position \(x_b\) is expressed as a functional integral over all trajectories \(x(t)\) with action \(S[x]\):
@@ -140,17 +112,14 @@ For a spin-\(\frac{1}{2}\) system in \(\mathbb{C}^2\), the three Pauli operators
 In the limit \(\hbar \to 0\), the stationary wave function \(\psi(x)\) is approximated by:
 
 \[\psi(x) \approx \frac{C}{\sqrt{p(x)}} \exp\left( \pm \frac{i}{\hbar} \int^x p(x') \, dx' \right), \quad p(x) = \sqrt{2m(E - V(x))} \tag{5}\]
-        """.trimIndent()
+        """
+
+    val QUANTUM_LATEX_PAPER = SampleDocumentSpec(
+        id = "Quantum_Path_Integrals.tex" , fileName = "Quantum_Path_Integrals.tex", mimeType = "application/x-tex",
+        content = QUANTUM_LATEX_PAPER_CONTENT,
     )
 
-    val ALGORITHMS_TABLES_CODE_MD = SampleDocumentSpec(
-        id = "algorithms_md",
-        title = "Modern Algorithms & Asymptotic Complexity",
-        subtitle = "GFM tables, Kotlin code blocks, Master Theorem recurrences, and lists",
-        badge = "MD + CODE",
-        fileName = "Algorithms_and_Complexity.md",
-        mimeType = "text/markdown",
-        content = """
+    private val ALGORITHMS_TABLES_CODE_MD_CONTENT = """
 # Modern Algorithms & Asymptotic Complexity
 
 This guide combines **Markdown**, **GFM Tables**, **Code Blocks**, and **LaTeX Recurrences** to test multi-block layout and readability.
@@ -204,17 +173,14 @@ fun dijkstra(n: Int, adj: List<List<Edge>>, source: Int): LongArray {
 ```
 
 > "Premature optimization is the root of all evil, yet asymptotic clarity is the foundation of engineering." — *Donald Knuth*
-        """.trimIndent()
+        """
+
+    val ALGORITHMS_TABLES_CODE_MD = SampleDocumentSpec(
+        id = "Algorithms_and_Complexity.md" , fileName = "Algorithms_and_Complexity.md", mimeType = "text/markdown",
+        content = ALGORITHMS_TABLES_CODE_MD_CONTENT,
     )
 
-    val TYPOGRAPHY_HTML_ARTICLE = SampleDocumentSpec(
-        id = "typography_html",
-        title = "The Craft of Digital Typography",
-        subtitle = "Clean HTML article extraction with semantic headings, quotes, and lists",
-        badge = "HTML",
-        fileName = "Typography_for_Digital_Reading.html",
-        mimeType = "text/html",
-        content = """
+    private val TYPOGRAPHY_HTML_ARTICLE_CONTENT = """
 <!DOCTYPE html>
 <html>
 <head><title>The Craft of Digital Typography</title></head>
@@ -239,17 +205,14 @@ fun dijkstra(n: Int, adj: List<List<Edge>>, source: Int): LongArray {
 </article>
 </body>
 </html>
-        """.trimIndent()
+        """
+
+    val TYPOGRAPHY_HTML_ARTICLE = SampleDocumentSpec(
+        id = "Typography_for_Digital_Reading.html" , fileName = "Typography_for_Digital_Reading.html", mimeType = "text/html",
+        content = TYPOGRAPHY_HTML_ARTICLE_CONTENT,
     )
 
-    val MEDITATIONS_PLAIN_TEXT = SampleDocumentSpec(
-        id = "meditations_txt",
-        title = "Meditations — Book IV (Selected Passages)",
-        subtitle = "Plain text reflow, paragraph spacing, and long-form reading comfort",
-        badge = "TEXT",
-        fileName = "Meditations_Book_IV.txt",
-        mimeType = "text/plain",
-        content = """
+    private val MEDITATIONS_PLAIN_TEXT_CONTENT = """
 Meditations — Book IV (Selected Passages)
 
 People look for retreats for themselves, in the country, by the coast, or in the hills. There is nowhere that a person can find a more peaceful and trouble-free retreat than in his own mind, especially if he has within himself the kind of thoughts that let him dip into them and immediately gain complete ease of mind: and by ease of mind I mean nothing other than an ordered mind.
@@ -263,6 +226,31 @@ How much time he gains who does not look to see what his neighbor says or does o
 Everything that happens is as normal and expected as the spring rose or the summer fruit: this is true of sickness, death, slander, intrigue, and all the other things that delight or trouble foolish people.
 
 Remember that to change your mind and to accept correction are free acts too. The action is yours, accomplished in accordance with your own impulse and judgment, and indeed your own intelligence.
-        """.trimIndent()
+        """
+
+    val MEDITATIONS_PLAIN_TEXT = SampleDocumentSpec(
+        id = "Meditations_Book_IV.txt" , fileName = "Meditations_Book_IV.txt", mimeType = "text/plain",
+        content = MEDITATIONS_PLAIN_TEXT_CONTENT,
+    )
+
+    val all: List<SampleDocumentSpec> = listOf(
+        MATH_PHYSICS_MARKDOWN,
+        QUANTUM_LATEX_PAPER,
+        ALGORITHMS_TABLES_CODE_MD,
+        TYPOGRAPHY_HTML_ARTICLE,
+        MEDITATIONS_PLAIN_TEXT,
+    )
+}
+
+data class SampleDocumentSpec(
+    val id: String,
+    val fileName: String,
+    val mimeType: String,
+    val content: String,
+) {
+    fun toDocumentSource(): DocumentSource = DocumentSource(
+        name = fileName,
+        mimeType = mimeType,
+        bytes = content.toByteArray(Charsets.UTF_8),
     )
 }

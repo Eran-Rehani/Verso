@@ -1,0 +1,32 @@
+{
+  "case": "a-plus-b",
+  "mode": "display",
+  "latex": "a+b",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 26.54,
+  "pageHeight": 10.223,
+  "glyphs": [
+    {
+      "char": "a",
+      "xMin": 0.5,
+      "yMin": 0.5051,
+      "xMax": 6.645,
+      "yMax": 11.1213
+    },
+    {
+      "char": "+",
+      "xMin": 9.299,
+      "yMin": 0.4453,
+      "xMax": 18.4041,
+      "yMax": 11.1213
+    },
+    {
+      "char": "b",
+      "xMin": 21.0582,
+      "yMin": 0.5051,
+      "xMax": 26.0351,
+      "yMax": 11.1213
+    }
+  ]
+}

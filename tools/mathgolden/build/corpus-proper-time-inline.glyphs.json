@@ -1,0 +1,109 @@
+{
+  "case": "corpus-proper-time",
+  "mode": "inline",
+  "latex": "\\Delta\\tau = \\int \\mathrm{d}\\tau = \\int \\sqrt{1 - \\frac{v^2(t)}{c^2}}\\,\\mathrm{d}t",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 142.605,
+  "pageHeight": 19.331,
+  "glyphs": [
+    {
+      "char": "∆τ",
+      "xMin": 0.5,
+      "yMin": 5.7453,
+      "xMax": 15.3388,
+      "yMax": 16.4213
+    },
+    {
+      "char": "=",
+      "xMin": 19.9894,
+      "yMin": 5.7453,
+      "xMax": 29.0944,
+      "yMax": 16.4213
+    },
+    {
+      "char": "R",
+      "xMin": 32.421,
+      "yMin": 5.1795,
+      "xMax": 37.1253,
+      "yMax": 11.5556
+    },
+    {
+      "char": "dτ",
+      "xMin": 41.055,
+      "yMin": 5.7453,
+      "xMax": 52.642,
+      "yMax": 16.4213
+    },
+    {
+      "char": "=",
+      "xMin": 57.2926,
+      "yMin": 5.7453,
+      "xMax": 66.3976,
+      "yMax": 16.4213
+    },
+    {
+      "char": "Rq",
+      "xMin": 69.724,
+      "yMin": 0.8985,
+      "xMax": 88.3206,
+      "yMax": 11.5556
+    },
+    {
+      "char": "1",
+      "xMin": 88.321,
+      "yMin": 5.7453,
+      "xMax": 94.1743,
+      "yMax": 16.4213
+    },
+    {
+      "char": "−",
+      "xMin": 96.8283,
+      "yMin": 5.1356,
+      "xMax": 106.1271,
+      "yMax": 16.4213
+    },
+    {
+      "char": "v",
+      "xMin": 109.981,
+      "yMin": 2.9918,
+      "xMax": 114.1047,
+      "yMax": 10.0692
+    },
+    {
+      "char": "2",
+      "xMin": 114.391,
+      "yMin": 2.1344,
+      "xMax": 118.0439,
+      "yMax": 7.4127
+    },
+    {
+      "char": "c",
+      "xMin": 115.175,
+      "yMin": 12.6928,
+      "xMax": 118.8428,
+      "yMax": 19.7702
+    },
+    {
+      "char": "(t)",
+      "xMin": 118.542,
+      "yMin": 3.0316,
+      "xMax": 128.1866,
+      "yMax": 10.0692
+    },
+    {
+      "char": "2",
+      "xMin": 118.842,
+      "yMin": 11.8364,
+      "xMax": 122.4949,
+      "yMax": 17.1147
+    },
+    {
+      "char": "dt",
+      "xMin": 131.375,
+      "yMin": 5.7453,
+      "xMax": 142.106,
+      "yMax": 16.4213
+    }
+  ]
+}

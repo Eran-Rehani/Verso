@@ -1,0 +1,81 @@
+{
+  "case": "corpus-sum-limits",
+  "mode": "inline",
+  "latex": "\\sum_{n=1}^{N} \\frac{p_n^i p_n^\\beta}{E_n}",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 51.08,
+  "pageHeight": 19.757,
+  "glyphs": [
+    {
+      "char": "P",
+      "xMin": 0.5,
+      "yMin": 5.7695,
+      "xMax": 11.0165,
+      "yMax": 12.1456
+    },
+    {
+      "char": "n=1",
+      "xMin": 11.016,
+      "yMin": 11.5628,
+      "xMax": 26.9753,
+      "yMax": 18.6402
+    },
+    {
+      "char": "N",
+      "xMin": 11.016,
+      "yMin": 3.7918,
+      "xMax": 17.7372,
+      "yMax": 10.8692
+    },
+    {
+      "char": "p",
+      "xMin": 30.661,
+      "yMin": 3.0278,
+      "xMax": 34.9234,
+      "yMax": 10.1052
+    },
+    {
+      "char": "E",
+      "xMin": 34.37,
+      "yMin": 12.7298,
+      "xMax": 40.5763,
+      "yMax": 19.8072
+    },
+    {
+      "char": "in",
+      "xMin": 34.924,
+      "yMin": 1.5975,
+      "xMax": 39.525,
+      "yMax": 11.7117
+    },
+    {
+      "char": "p",
+      "xMin": 40.023,
+      "yMin": 3.0278,
+      "xMax": 44.2854,
+      "yMax": 10.1052
+    },
+    {
+      "char": "n",
+      "xMin": 40.576,
+      "yMin": 15.1085,
+      "xMax": 45.177,
+      "yMax": 20.4167
+    },
+    {
+      "char": "n",
+      "xMin": 44.285,
+      "yMin": 5.8325,
+      "xMax": 48.886,
+      "yMax": 11.1407
+    },
+    {
+      "char": "β",
+      "xMin": 44.285,
+      "yMin": 0.5025,
+      "xMax": 48.4574,
+      "yMax": 5.8107
+    }
+  ]
+}

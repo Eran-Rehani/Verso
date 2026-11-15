@@ -1,0 +1,7 @@
+# Regenerable intermediates; the committed goldens are the .glyphs.json files.
+build/*.pdf
+build/*.tex
+build/*.log
+build/*.aux
+# Rasters are secondary evidence and are regenerated on demand.
+build/*.png

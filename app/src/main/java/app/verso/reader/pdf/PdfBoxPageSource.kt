@@ -43,6 +43,7 @@ class PdfBoxPageSource(private val context: Context) : PdfPageSource {
                 val pageHeight = if (isRotated) cropBox.width else cropBox.height
 
                 val pageRuns = mutableListOf<TextRun>()
+                val pageGlyphs = mutableListOf<app.verso.core.pdf.PdfGlyph>()
                 val stripper = object : PDFTextStripper() {
                     init {
                         sortByPosition = false
@@ -51,8 +52,25 @@ class PdfBoxPageSource(private val context: Context) : PdfPageSource {
                     override fun writeString(text: String, textPositions: List<TextPosition>) {
                         if (textPositions.isEmpty()) return
                         val first = textPositions.first()
+                        // Record every glyph BEFORE any early return or trimming. The old code
+                        // only ever kept the run's first position, which is exactly how
+                        // superscript sizes and baselines were being destroyed.
+                        for (tp in textPositions) {
+                            val raw = tp.unicode ?: ""
+                            pageGlyphs += app.verso.core.pdf.PdfGlyph(
+                                text = raw,
+                                x = tp.xDirAdj,
+                                baseline = tp.yDirAdj,
+                                width = tp.widthDirAdj,
+                                height = tp.heightDir,
+                                fontSize = tp.fontSizeInPt,
+                                fontName = tp.font?.name ?: "",
+                                direction = tp.dir,
+                                unmapped = raw.isEmpty() || raw.any { it.code in 0..8 || it.code in 14..31 },
+                            )
+                        }
                         if (first.dir != 0f) {
-                            // Rotated text skipped
+                            // Rotated text skipped from the prose stream (glyphs kept above)
                             return
                         }
 
@@ -88,12 +106,23 @@ class PdfBoxPageSource(private val context: Context) : PdfPageSource {
                 }
 
                 stripper.writeText(document, noopWriter)
+                // Second pass: painted horizontal rules. TeX draws fraction bars as stroked
+                // or filled geometry, so a text-only reading can never see them.
+                val pageRules = mutableListOf<app.verso.core.pdf.PdfRule>()
+                try {
+                    PdfRuleCollector(pdPage) { pageRules += it }.processPage(pdPage)
+                } catch (ignored: Exception) {
+                    // A malformed content stream must not fail the whole import: prose is
+                    // still readable, and the reconstructor simply sees no rules on this page.
+                }
                 pages.add(
                     PdfPage(
                         index = pageIndex,
                         width = pageWidth,
                         height = pageHeight,
-                        runs = pageRuns
+                        runs = pageRuns,
+                        glyphs = pageGlyphs,
+                        rules = PdfRuleFilter.thinRules(pageRules, pageHeight)
                     )
                 )
                 onPage()

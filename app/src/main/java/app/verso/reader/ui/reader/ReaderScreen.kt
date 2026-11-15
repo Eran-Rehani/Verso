@@ -8,7 +8,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +49,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -67,7 +67,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -125,6 +124,15 @@ fun ReaderScreen(
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
+
+    // Resolve the bundled OpenType math face once per settings change and publish it to
+    // every math view below. Loading failures throw inside MathTypeface rather than
+    // silently reverting to the system serif.
+    val mathContext = androidx.compose.ui.platform.LocalContext.current
+    val mathFamily = remember(settings.mathFont) {
+        MathTypeface.fontFamily(mathContext, settings.mathFont)
+    }
+
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = initialBlock.coerceIn(0, (document.blocks.size - 1).coerceAtLeast(0)),
         initialFirstVisibleItemScrollOffset = initialOffsetPx.coerceAtLeast(0)
@@ -147,13 +155,17 @@ fun ReaderScreen(
         TocExtractor.extract(document)
     }
 
-    val searchMatches = remember(document, searchQuery, tocEntries) {
-        if (searchQuery.isNotBlank()) {
-            DocumentSearcher.search(document, searchQuery, tocEntries)
-        } else {
-            emptyList()
-        }
+    val searchState = remember(document) { ReaderSearchState(coroutineScope) }
+    DisposableEffect(searchState) { onDispose { searchState.close() } }
+    LaunchedEffect(searchState, searchOpen) {
+        searchState.update(document, tocEntries, searchQuery, searchOpen)
     }
+    val currentSearch = searchState.result
+    val isSearching = searchOpen && searchQuery.isNotBlank() &&
+        (currentSearch.query != searchQuery || currentSearch.searching)
+    val searchMatches = if (searchOpen && currentSearch.query == searchQuery && !isSearching) {
+        currentSearch.matches
+    } else emptyList()
 
     LaunchedEffect(searchMatches.size) {
         if (currentMatchIndex >= searchMatches.size) {
@@ -286,8 +298,13 @@ fun ReaderScreen(
         }
     }
 
-    val activeQuery = if (searchOpen && searchQuery.isNotBlank()) searchQuery else null
+    val currentHighlights = if (searchOpen && currentSearch.query == searchQuery && !isSearching) currentSearch.highlights else ReaderSearchHighlights()
+    val matchedBlocks = if (searchOpen && currentSearch.query == searchQuery && !isSearching) currentSearch.matchedBlocks else emptySet()
 
+    CompositionLocalProvider(
+        LocalMathFontFamily provides mathFamily,
+        LocalMathFontChoice provides settings.mathFont,
+    ) {
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -304,15 +321,6 @@ fun ReaderScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("reader_list")
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = {
-                            if (!searchOpen && !bookmarksSidebarOpen) {
-                                onToggleChrome()
-                            }
-                        }
-                    )
-                }
         ) {
             itemsIndexed(
                 items = document.blocks,
@@ -412,7 +420,9 @@ fun ReaderScreen(
                         block = block,
                         settings = settings,
                         palette = palette,
-                        searchQuery = activeQuery,
+                        searchRanges = currentHighlights.blocks[index].orEmpty(),
+                        cellSearchRanges = currentHighlights.cells[index].orEmpty(),
+                        isSearchMatch = index in matchedBlocks,
                         activeMatchRawStart = activeRawStart,
                         onInspectEquation = { latex -> inspectedEquationLatex = latex },
                         modifier = Modifier.fillMaxWidth()
@@ -452,6 +462,7 @@ fun ReaderScreen(
                 ) {
                     IconButton(
                         onClick = {
+                            searchState.close()
                             onCloseSearch()
                             searchResultsSheetOpen = false
                         },
@@ -478,6 +489,7 @@ fun ReaderScreen(
                             value = searchQuery,
                             onValueChange = {
                                 searchQuery = it
+                                searchState.update(document, tocEntries, it, true)
                                 currentMatchIndex = 0
                             },
                             singleLine = true,
@@ -511,6 +523,7 @@ fun ReaderScreen(
                             IconButton(
                                 onClick = {
                                     searchQuery = ""
+                                    searchState.update(document, tocEntries, "", true)
                                     currentMatchIndex = 0
                                 },
                                 modifier = Modifier
@@ -533,6 +546,8 @@ fun ReaderScreen(
                     Text(
                         text = if (searchQuery.isBlank()) {
                             ""
+                        } else if (isSearching) {
+                            "Searching…"
                         } else if (searchMatches.isEmpty()) {
                             "0/0"
                         } else {
@@ -593,147 +608,35 @@ fun ReaderScreen(
                     }
                 }
             } else {
-                // Standard Title & Action Chrome Bar
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(palette.background.copy(alpha = 0.94f))
-                        .statusBarsPadding()
-                        .padding(horizontal = 4.dp, vertical = 6.dp)
-                ) {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("reader_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = palette.text
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable(onClick = onToggleToc)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = document.title.ifBlank { "Verso" },
-                            color = palette.text,
-                            fontSize = 16.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        val subtitle = if (activeTocEntry != null) {
-                            "Page $currentPageNumber/$totalPages · ${activeTocEntry.title}"
-                        } else {
-                            "Page $currentPageNumber of $totalPages"
-                        }
-                        Text(
-                            text = subtitle,
-                            color = palette.muted,
-                            fontSize = 11.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    // Quick Bookmark Toggle for Current Page
-                    IconButton(
-                        onClick = { onToggleBookmark(currentBlockIndex, currentOffsetPx) },
-                        modifier = Modifier.testTag("reader_bookmark_toggle_button")
-                    ) {
-                        Icon(
-                            imageVector = if (isCurrentBlockBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                            contentDescription = if (isCurrentBlockBookmarked) "Remove bookmark from current page" else "Bookmark current page",
-                            tint = if (isCurrentBlockBookmarked) palette.link else palette.text
-                        )
-                    }
-
-                    // Open Bookmarks Sidebar Drawer
-                    Box {
-                        IconButton(
-                            onClick = onToggleBookmarksSidebar,
-                            modifier = Modifier.testTag("reader_bookmarks_sidebar_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Bookmarks,
-                                contentDescription = "Bookmarks sidebar",
-                                tint = if (bookmarksSidebarOpen) palette.link else palette.text
-                            )
-                        }
-                        if (bookmarks.isNotEmpty()) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 6.dp, end = 6.dp)
-                                    .clip(CircleShape)
-                                    .background(palette.link)
-                                    .padding(horizontal = 4.dp, vertical = 1.dp)
-                            ) {
-                                Text(
-                                    text = "${bookmarks.size}",
-                                    color = palette.background,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    // Read Aloud (Text-to-Speech) Toggle Button
-                    IconButton(
-                        onClick = {
-                            ttsController.toggleBar(currentBlockIndex)
-                        },
-                        modifier = Modifier.testTag("reader_tts_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                            contentDescription = if (ttsState.isActive) "Stop Read Aloud" else "Read Aloud",
-                            tint = if (ttsState.isActive) palette.link else palette.text
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onToggleSearch,
-                        modifier = Modifier.testTag("reader_search_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Search,
-                            contentDescription = "Search document",
-                            tint = if (searchOpen) palette.link else palette.text
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onToggleToc,
-                        modifier = Modifier.testTag("reader_toc_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
-                            contentDescription = "Table of contents",
-                            tint = if (tocOpen) palette.link else palette.text
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier.testTag("reader_settings_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Settings,
-                            contentDescription = "Reading settings",
-                            tint = if (settingsOpen) palette.link else palette.text
-                        )
-                    }
-                }
+                ReaderChrome(
+                    visible = true,
+                    title = document.title.ifBlank { "Verso" },
+                    subtitle = if (activeTocEntry != null) "Page $currentPageNumber/$totalPages · ${activeTocEntry.title}" else "Page $currentPageNumber of $totalPages",
+                    bookmarked = isCurrentBlockBookmarked,
+                    readingAloud = ttsState.isActive,
+                    palette = palette,
+                    onBack = onBack,
+                    onBookmark = { onToggleBookmark(currentBlockIndex, currentOffsetPx) },
+                    onSearch = onToggleSearch,
+                    onToc = onToggleToc,
+                    onBookmarks = onToggleBookmarksSidebar,
+                    onReadAloud = { ttsController.toggleBar(currentBlockIndex) },
+                    onSettings = onOpenSettings,
+                    onToggleChrome = onToggleChrome
+                )
             }
+        }
+
+        if (!chromeVisible && !searchOpen) {
+            ReaderChrome(
+                visible = false, title = "", subtitle = "", bookmarked = false,
+                readingAloud = ttsState.isActive, palette = palette,
+                onBack = onBack, onBookmark = {}, onSearch = onToggleSearch,
+                onToc = onToggleToc, onBookmarks = onToggleBookmarksSidebar,
+                onReadAloud = { ttsController.toggleBar(currentBlockIndex) },
+                onSettings = onOpenSettings, onToggleChrome = onToggleChrome,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
         }
 
         // Bottom quick chapter & TOC bar when chrome is visible and no sheet/sidebar/search/TTS is open
@@ -925,7 +828,7 @@ fun ReaderScreen(
 
         // Full-Text Search Results bottom panel
         AnimatedVisibility(
-            visible = searchOpen && searchResultsSheetOpen,
+            visible = searchOpen && searchResultsSheetOpen && searchMatches.isNotEmpty(),
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -990,5 +893,6 @@ fun ReaderScreen(
                 onDismiss = { inspectedEquationLatex = null }
             )
         }
+    }
     }
 }

@@ -1,0 +1,88 @@
+{
+  "case": "corpus-gr-tensor",
+  "mode": "display",
+  "latex": "\\partial_\\alpha T^{\\alpha\\beta} = \\sum_n \\dot{p}_n^\\beta \\delta_n",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 87.187,
+  "pageHeight": 23.914,
+  "glyphs": [
+    {
+      "char": "∂",
+      "xMin": 0.5,
+      "yMin": 3.1621,
+      "xMax": 6.6796,
+      "yMax": 13.7783
+    },
+    {
+      "char": "α",
+      "xMin": 6.68,
+      "yMin": 7.7208,
+      "xMax": 12.1188,
+      "yMax": 14.7982
+    },
+    {
+      "char": "T",
+      "xMin": 12.617,
+      "yMin": 3.1621,
+      "xMax": 19.4781,
+      "yMax": 13.7783
+    },
+    {
+      "char": "αβ",
+      "xMin": 21.103,
+      "yMin": 0.9918,
+      "xMax": 31.2936,
+      "yMax": 8.0692
+    },
+    {
+      "char": "=",
+      "xMin": 35.523,
+      "yMin": 3.1023,
+      "xMax": 44.6281,
+      "yMax": 13.7783
+    },
+    {
+      "char": "X",
+      "xMin": 47.948,
+      "yMin": 1.0975,
+      "xMax": 62.339,
+      "yMax": 7.4736
+    },
+    {
+      "char": "n",
+      "xMin": 52.574,
+      "yMin": 16.8868,
+      "xMax": 57.7123,
+      "yMax": 23.9642
+    },
+    {
+      "char": "ṗ",
+      "xMin": 64.3346,
+      "yMin": 3.1621,
+      "xMax": 70.2093,
+      "yMax": 13.7783
+    },
+    {
+      "char": "βn",
+      "xMin": 70.206,
+      "yMin": 0.9918,
+      "xMax": 75.3443,
+      "yMax": 15.9602
+    },
+    {
+      "char": "δ",
+      "xMin": 75.866,
+      "yMin": 3.1621,
+      "xMax": 81.051,
+      "yMax": 13.7783
+    },
+    {
+      "char": "n",
+      "xMin": 81.05,
+      "yMin": 7.7208,
+      "xMax": 86.1883,
+      "yMax": 14.7982
+    }
+  ]
+}

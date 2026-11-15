@@ -1,0 +1,60 @@
+{
+  "case": "corpus-relation-chain",
+  "mode": "inline",
+  "latex": "x \\le y \\implies y \\ge z",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 90.127,
+  "pageHeight": 10.928,
+  "glyphs": [
+    {
+      "char": "x",
+      "xMin": 0.5,
+      "yMin": -0.1939,
+      "xMax": 7.1519,
+      "yMax": 10.4223
+    },
+    {
+      "char": "≤",
+      "xMin": 10.4754,
+      "yMin": -0.8634,
+      "xMax": 19.7742,
+      "yMax": 10.4223
+    },
+    {
+      "char": "y",
+      "xMin": 23.0977,
+      "yMin": -0.1939,
+      "xMax": 28.8051,
+      "yMax": 10.4223
+    },
+    {
+      "char": "=⇒",
+      "xMin": 35.8707,
+      "yMin": -0.2537,
+      "xMax": 54.9344,
+      "yMax": 10.4223
+    },
+    {
+      "char": "y",
+      "xMin": 61.5815,
+      "yMin": -0.1939,
+      "xMax": 67.2889,
+      "yMax": 10.4223
+    },
+    {
+      "char": "≥",
+      "xMin": 71.0429,
+      "yMin": -0.8634,
+      "xMax": 80.3416,
+      "yMax": 10.4223
+    },
+    {
+      "char": "z",
+      "xMin": 83.6532,
+      "yMin": -0.1939,
+      "xMax": 89.0916,
+      "yMax": 10.4223
+    }
+  ]
+}

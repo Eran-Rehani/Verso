@@ -53,7 +53,7 @@ enum class MatrixEnvType {
 
 sealed interface MathNode {
     data class Row(val children: List<MathNode>) : MathNode
-    data class Symbol(val text: String, val category: SymbolCategory) : MathNode
+    data class Symbol(val text: String, val category: SymbolCategory, val rejectedSource: String? = null) : MathNode
     data class BigOp(val symbol: String, val isIntegral: Boolean, val isLimitWord: Boolean = false) : MathNode
     data class Fraction(
         val numerator: MathNode,
@@ -84,6 +84,55 @@ data class ParsedEquation(
 object LatexParser {
 
     private const val CACHE_CAPACITY = 256
+    private const val MAX_INPUT = 16_384
+    private const val MAX_DEPTH = 64
+    private const val MAX_ATOMS = 4_096
+    private const val PREVIEW = 160
+    private class LimitExceeded : RuntimeException()
+
+    private fun rejected(source: String) = MathNode.Symbol(
+        "Unsupported equation: " + source.take(PREVIEW) + if (source.length > PREVIEW) "…" else "",
+        SymbolCategory.TEXT, source
+    )
+
+    private fun excessiveBraces(source: String): Boolean {
+        var depth = 0
+        var i = 0
+        while (i < source.length) {
+            when (source[i]) {
+                '\\' -> if (i + 1 < source.length) i++
+                '{' -> if (++depth > MAX_DEPTH) return true
+                '}' -> if (depth > 0) depth--
+            }
+            i++
+        }
+        return false
+    }
+
+    private fun MathNode.isRejected() = this is MathNode.Symbol && rejectedSource != null
+
+    private fun withinDepth(root: MathNode): Boolean {
+        val pending = java.util.ArrayDeque<Pair<MathNode, Int>>()
+        pending.add(root to 1)
+        while (pending.isNotEmpty()) {
+            val (node, depth) = pending.removeLast()
+            if (depth > MAX_DEPTH + 1) return false
+            val children = when (node) {
+                is MathNode.Row -> node.children
+                is MathNode.Fraction -> listOf(node.numerator, node.denominator)
+                is MathNode.Sqrt -> listOfNotNull(node.radicand, node.degree)
+                is MathNode.SubSup -> listOfNotNull(node.base, node.subscript, node.superscript)
+                is MathNode.Delimited -> listOf(node.content)
+                is MathNode.Accent -> listOf(node.base)
+                is MathNode.Matrix -> node.rows.flatten()
+                is MathNode.Styled -> listOf(node.content)
+                is MathNode.Boxed -> listOf(node.content)
+                else -> emptyList()
+            }
+            children.forEach { pending.add(it to depth + 1) }
+        }
+        return true
+    }
     private val TAG_REGEX = Regex("""\\tag\*?\{([^{}]*)\}""")
     private val WHITESPACE_REGEX = Regex("\\s+")
     private val DELIMITER_SIZING_COMMANDS = setOf(
@@ -106,6 +155,7 @@ object LatexParser {
     private val plainTextCache = createLruCache<String>()
 
     fun parseEquation(latex: String): ParsedEquation {
+        if (latex.length > MAX_INPUT || excessiveBraces(latex)) return ParsedEquation(rejected(latex))
         val rawTrimmed = latex.trim()
         equationCache[rawTrimmed]?.let { return it }
 
@@ -162,16 +212,23 @@ object LatexParser {
         }
 
         val node = parse(cleaned)
+        if (node.isRejected()) return ParsedEquation(rejected(latex))
         return ParsedEquation(node, tag).also { equationCache[rawTrimmed] = it }
     }
 
     fun parse(latex: String): MathNode {
+        if (latex.length > MAX_INPUT || excessiveBraces(latex)) return rejected(latex)
         val trimmed = latex.trim()
         if (trimmed.isEmpty()) return MathNode.Row(emptyList())
         parseCache[trimmed]?.let { return it }
 
-        val parser = ParserState(trimmed)
-        return parser.parseTopLevel().also { parseCache[trimmed] = it }
+        val node = try {
+            ParserState(trimmed).parseTopLevel()
+        } catch (_: LimitExceeded) {
+            return rejected(latex)
+        }
+        if (!withinDepth(node)) return rejected(latex)
+        return node.also { parseCache[trimmed] = it }
     }
 
     /**
@@ -179,11 +236,13 @@ object LatexParser {
      * Table of Contents titles, search previews, and accessibility labels.
      */
     fun toReadablePlainText(latex: String): String {
+        if (latex.length > MAX_INPUT || excessiveBraces(latex)) return rejected(latex).text
         val trimmed = latex.trim()
         if (trimmed.isEmpty()) return ""
         plainTextCache[trimmed]?.let { return it }
 
         val parsedEq = parseEquation(trimmed)
+        if (parsedEq.root.isRejected()) return (parsedEq.root as MathNode.Symbol).text
         return nodeToPlainText(parsedEq.root).replace(WHITESPACE_REGEX, " ").trim().also {
             plainTextCache[trimmed] = it
         }
@@ -291,6 +350,8 @@ object LatexParser {
     private class ParserState(private val src: String) {
         private var pos = 0
         private val len = src.length
+        private var depth = 0
+        private var atoms = 0
 
         fun parseTopLevel(): MathNode {
             // Check if top-level has \\ line breaks outside environments
@@ -466,13 +527,19 @@ object LatexParser {
                         pos += 2
                         continue
                     }
-                    if (src[pos] == '{') depth++
+                    if (src[pos] == '{' && ++depth > MAX_DEPTH) throw LimitExceeded()
                     else if (src[pos] == '}') depth--
                     pos++
                 }
                 return src.substring(start, (pos - 1).coerceAtLeast(start))
             }
-            return src[pos++].toString()
+            return consumeCodePoint()
+        }
+
+        private fun consumeCodePoint(): String {
+            val start = pos
+            pos += Character.charCount(src.codePointAt(pos))
+            return src.substring(start, pos)
         }
 
         private fun parseNextAtomWithSubSup(): MathNode? {
@@ -557,6 +624,15 @@ object LatexParser {
         }
 
         private fun parseSingleAtom(): MathNode? {
+            if (++depth > MAX_DEPTH + 1 || ++atoms > MAX_ATOMS) throw LimitExceeded()
+            try {
+                return parseSingleAtomInner()
+            } finally {
+                depth--
+            }
+        }
+
+        private fun parseSingleAtomInner(): MathNode? {
             skipWhitespace()
             if (pos >= len) return null
 
@@ -572,23 +648,22 @@ object LatexParser {
             }
 
             // Number run (digits and decimal point inside numbers)
-            if (ch.isDigit()) {
+            if (Character.isDigit(src.codePointAt(pos))) {
                 val start = pos
-                while (pos < len && (src[pos].isDigit() || (src[pos] == '.' && pos + 1 < len && src[pos + 1].isDigit()))) {
-                    pos++
+                while (pos < len && (Character.isDigit(src.codePointAt(pos)) ||
+                        (src[pos] == '.' && pos + 1 < len && Character.isDigit(src.codePointAt(pos + 1))))) {
+                    pos += Character.charCount(src.codePointAt(pos))
                 }
                 return MathNode.Symbol(src.substring(start, pos), SymbolCategory.NUMBER)
             }
 
-            // Single ASCII or Greek letter -> italic math variable
-            if (ch.isLetter()) {
-                pos++
-                val s = ch.toString()
-                return MathNode.Symbol(s, SymbolCategory.VARIABLE)
+            // Single letter -> italic math variable
+            if (Character.isLetter(src.codePointAt(pos))) {
+                return MathNode.Symbol(consumeCodePoint(), SymbolCategory.VARIABLE)
             }
 
             // Basic operators, relations & Unicode symbols
-            pos++
+            val symbol = consumeCodePoint()
             return when (ch) {
                 '+' -> MathNode.Symbol("+", SymbolCategory.OPERATOR)
                 '-', '−', '–', '—' -> MathNode.Symbol("−", SymbolCategory.OPERATOR)
@@ -669,7 +744,7 @@ object LatexParser {
                 '~' -> MathNode.Space(0.33f)
                 ',', ';', '!', '?', '.', '(', ')', '[', ']', '|' ->
                     MathNode.Symbol(ch.toString(), SymbolCategory.PUNCTUATION)
-                else -> MathNode.Symbol(ch.toString(), SymbolCategory.TEXT)
+                else -> MathNode.Symbol(symbol, SymbolCategory.TEXT)
             }
         }
 
@@ -680,7 +755,7 @@ object LatexParser {
             // Check single non-letter escaped characters: \, \; \: \! \{ \} \$ \% \& \# \_ \| \
             val first = src[pos]
             if (!first.isLetter()) {
-                pos++
+                val escaped = consumeCodePoint()
                 return when (first) {
                     ',' -> MathNode.Space(0.17f)
                     ':' -> MathNode.Space(0.22f)
@@ -689,7 +764,7 @@ object LatexParser {
                     ' ' -> MathNode.Space(0.33f)
                     '|' -> MathNode.Symbol("‖", SymbolCategory.PUNCTUATION)
                     '{', '}', '$', '%', '&', '#', '_' -> MathNode.Symbol(first.toString(), SymbolCategory.PUNCTUATION)
-                    else -> MathNode.Symbol(first.toString(), SymbolCategory.TEXT)
+                    else -> MathNode.Symbol(escaped, SymbolCategory.TEXT)
                 }
             }
 
@@ -1047,12 +1122,13 @@ object LatexParser {
                 pos++
                 if (pos >= len) return ""
                 if (!src[pos].isLetter()) {
-                    val c = src[pos++]
+                    val c = src[pos]
+                    val delimiter = consumeCodePoint()
                     return when (c) {
                         '{' -> "{"
                         '}' -> "}"
                         '|' -> "‖"
-                        else -> c.toString()
+                        else -> delimiter
                     }
                 }
                 val start = pos
@@ -1080,8 +1156,8 @@ object LatexParser {
                     else -> LatexSymbolMap.MISC_SYMBOLS[name] ?: ""
                 }
             }
-            pos++
-            return if (ch == '.') "" else ch.toString()
+            val delimiter = consumeCodePoint()
+            return if (ch == '.') "" else delimiter
         }
 
         private fun simplifyRow(nodes: List<MathNode>): MathNode {

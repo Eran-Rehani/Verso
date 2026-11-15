@@ -27,6 +27,20 @@ enum class ReadAlign {
     Justify
 }
 
+/**
+ * Which bundled OpenType math face renders equations.
+ *
+ * Latin Modern is the default because it is the face TeX itself uses (and therefore the
+ * face the golden references are measured against). STIX Two is offered because it is
+ * more legible at small sizes and matches common EPUB/PDF conventions, at the cost of
+ * differing slightly in letterform from a default TeX page.
+ */
+@Serializable
+enum class MathFontChoice {
+    LatinModern,
+    StixTwo
+}
+
 @Immutable
 @Serializable
 data class ReaderSettings(
@@ -37,7 +51,12 @@ data class ReaderSettings(
     val paragraphSpacingEm: Float = 0.8f,
     val marginDp: Int = 20,
     val align: ReadAlign = ReadAlign.Start,
-    val keepScreenOn: Boolean = false
+    val keepScreenOn: Boolean = false,
+    /**
+     * Defaulted so settings files written before this field existed still load; the
+     * default is the TeX-faithful face.
+     */
+    val mathFont: MathFontChoice = MathFontChoice.LatinModern
 )
 
 object SettingsLimits {

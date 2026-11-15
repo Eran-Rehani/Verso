@@ -1,5 +1,7 @@
 package app.verso.reader.ui.settings
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -259,7 +261,11 @@ fun SettingsPanel(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().toggleable(
+                    value = settings.keepScreenOn,
+                    role = Role.Switch,
+                    onValueChange = { onChange(settings.copy(keepScreenOn = it).coerced()) }
+                )
             ) {
                 Text(
                     text = "Keep screen on",
@@ -268,7 +274,7 @@ fun SettingsPanel(
                 )
                 Switch(
                     checked = settings.keepScreenOn,
-                    onCheckedChange = { onChange(settings.copy(keepScreenOn = it).coerced()) }
+                    onCheckedChange = null
                 )
             }
 

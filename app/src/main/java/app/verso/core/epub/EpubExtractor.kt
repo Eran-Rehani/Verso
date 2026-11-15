@@ -86,10 +86,15 @@ object EpubExtractor {
             val linear = itemref.attr("linear")
             if (linear.equals("no", ignoreCase = true)) continue
 
-            val manifestItem = manifest[idref] ?: continue
+            if (idref.isBlank()) throw ImportError.Corrupt("Required spine item has no idref")
+            val manifestItem = manifest[idref]
+                ?: throw ImportError.Corrupt("Required spine item '$idref' has no manifest mapping")
+            if (manifestItem.properties.split(Regex("\\s+")).contains("nav")) continue
+            if (manifestItem.href.isBlank()) throw ImportError.Corrupt("Required spine item '$idref' has no href")
             val mediaType = manifestItem.mediaType.lowercase()
-            if (mediaType != "application/xhtml+xml" && mediaType != "text/html") continue
-            if (manifestItem.properties.contains("nav")) continue
+            if (mediaType != "application/xhtml+xml" && mediaType != "text/html") {
+                throw ImportError.Unsupported("EPUB chapter media type: ${manifestItem.mediaType}")
+            }
 
             // Resolve href relative to OPF directory
             val cleanHref = manifestItem.href.substringBefore('#')
@@ -100,11 +105,8 @@ object EpubExtractor {
             }
 
             val resolvedPath = normalizePath(opfDir + decodedPath)
-            val chapterBytes = entryMap[resolvedPath] ?: entryMap[cleanHref]
-            if (chapterBytes == null) {
-                // Skip missing chapter gracefully
-                continue
-            }
+            val chapterBytes = entryMap[resolvedPath]
+                ?: throw ImportError.Corrupt("Required EPUB chapter '$resolvedPath' not found")
 
             val chapterHtml = decodeUtf8(chapterBytes)
             val cleanedHtml = TextCleaner.clean(chapterHtml)
