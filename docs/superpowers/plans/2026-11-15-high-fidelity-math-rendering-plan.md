@@ -299,10 +299,110 @@ regression tests for `align`/`matrix`/`cases` pass.
 
 ## Phase M6 — PDF geometry reconstruction
 
-Blocked on a user decision (fail-import vs marked-region). Do not start until answered.
-Scope sketch (detailed plan to follow that decision): capture glyph positions and painted
-rules in `PdfBoxPageSource`, extend `PdfPage` with defaulted `glyphs`/`rules`, reconstruct
-fractions/scripts before flattening in `PdfAssembler`, keep prose reflow untouched.
+Goal: recover equation structure that baseline flattening destroys, and never show the user
+a hole or a fabricated formula.
+
+### M6.0 Decision log — three candidate policies, and why the third wins
+
+When the reconstructor *detects* a mathematical region it cannot resolve unambiguously, the
+behaviour has to be defined. Considered:
+
+- **A. Fail the whole import.** Refuse the file. Nothing is ever silently wrong, but one
+  ambiguous tensor equation rejects a 645-page course book.
+- **B. Keep the document, mark an unresolved region.** The page imports and the equation
+  appears as a visible placeholder. Honest, but it is a *hole*: the user gets less than the
+  PDF they already own.
+- **C. Fall back to the original page.** Render that page from the retained original PDF.
+  (`BookEntity.hasOriginal`/`sourcePath` already exist.) Never loses content, never fakes
+  structure, but breaks the "reflow prose, show LaTeX not page images" requirement on that
+  page and produces mixed-page books.
+- **C′. Crop the equation from the original and inline it.** Keeps prose reflowing and only
+  the offending formula becomes a picture. More work, and it re-introduces equation images,
+  which the user explicitly did not want.
+
+**Rejected: OCR.** OCR reads pixels. The reported PDFs already contain every character in
+their text layer; what is missing is *structure* — that a glyph is a superscript, or that a
+painted rule separates a numerator from a denominator. OCR cannot recover that better than
+the text layer states it, it introduces recognition errors on math (α vs a vs 𝛼), and it
+costs a large bundled model, violating the offline/no-unbounded-dependency constraints.
+Using OCR here would re-derive, less accurately, information the file already gives exactly.
+
+**Accepted: M6.4 vector-outline fallback (tier 2).** For an equation we can detect but cannot
+reconstruct into LaTeX, draw it from the PDF's own **embedded glyph outlines**. This is not a
+page image and not OCR: the outlines are the author's own vector data, already inside the
+file, so the result is crisp at any size, scales with the reader's font size, and adds
+nothing to the APK. It gives correct *appearance* without fabricating *semantics*.
+
+Final rendering ladder:
+
+| Situation | Rendering |
+|---|---|
+| Structure resolved confidently | Reconstructed **LaTeX**, reflowed through the math engine |
+| Detected but ambiguous, outlines available | **Vector glyph outline** from the embedded font |
+| No usable text or outlines (scanned) | Out of scope — existing `ImportError.NoTextLayer` |
+
+The user selected M6.4. This supersedes A and B.
+
+### M6.1 Models — DONE
+
+`PdfPage` gains defaulted `glyphs: List<PdfGlyph>` and `rules: List<PdfRule>` (never
+serialised). `PdfGlyph.text` is a `String`, because one PDF glyph can map to several Unicode
+scalars, and carries its own size, baseline, font and an `unmapped` flag.
+
+### M6.2 Glyph capture — DONE
+
+`PdfBoxPageSource.writeString` previously kept only `textPositions.first()` and applied its
+font size and name to the entire run, discarding every glyph's y-offset. It now records every
+`TextPosition` before any early return or trimming, so a 7pt raised superscript survives as
+its own glyph.
+
+### M6.3 Painted rule capture — DONE
+
+`PdfRuleCollector`, a `PDFGraphicsStreamEngine` pass, records thin painted horizontal rules.
+Only *painted* geometry counts (`strokePath`/`fillPath`/`fillAndStrokePath`); constructed or
+clip-only paths and vertical/curved segments are ignored so a table rule cannot become a
+fraction bar. Capped at 20,000 segments per page; a malformed stream yields no rules instead
+of failing the import. Verified against real `pdflatex` output, which draws fraction bars as
+`0 0 m 14.707 0 l S`.
+
+### M6.4 Vector-outline fallback — NEW, accepted
+
+Tasks, in order:
+
+1. **Font program access.** Extract the embedded font program for a glyph's font
+   (`PDType0Font`/`PDType1Font` → CFF/TrueType outlines) and expose a `GlyphOutline` model:
+   a normalised outline in em units plus its advance.
+2. **Outline extraction.** CFF charstring interpretation for Type0/CFF fonts and `glyf`
+   parsing for TrueType, mapped through the font's encoding/CMap so the correct glyph for
+   each captured `PdfGlyph` is chosen. Unsupported encodings mark the equation
+   *vector-unavailable* and fall through to the page fallback, never to a wrong glyph.
+3. **Vector span representation.** Add a defaulted variant to the block model for "vector
+   math run": an ordered list of `(outline, x, y, size, colour)`. It must round-trip through
+   the document codec and remain readable by older versions (defaulted, unknown-safe).
+4. **Rendering.** Draw the outlines through `DrawScope` into the same inline/block slots the
+   LaTeX renderer uses, so it scales with font size, participates in selection via its
+   readable text, and needs no network or extra asset.
+5. **Bounded and safe.** Cap outline points per glyph and glyphs per run; reject
+   pathological fonts; bounds-check every offset (as the MATH parser does).
+
+Verify: a synthetic PDF with a Type0 font whose equation cannot be reconstructed renders as
+vector outlines matching the source geometry; a font with no usable outlines reports
+vector-unavailable rather than drawing nonsense; older document JSON still loads.
+
+### M6.5 Page fallback for when outlines are unavailable
+
+Per-page fallback to the retained original PDF, surfaced with a subtle indicator so the
+reader always knows whether they are looking at reflowed or original content.
+
+### M6.6 Wire `PdfAssembler`
+
+Consume reconstruction (LaTeX → vector → page fallback) instead of flattening, keeping prose
+reflow untouched for text outside detected math regions.
+
+### M6.7 Reconstructor
+
+Glyphs + rules → LaTeX: a thin rule with compatible ink above and below becomes `\frac`;
+a raised and smaller glyph becomes `^` / `_`; bounded and conservative, per the design.
 
 ---
 
