@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
@@ -61,11 +62,16 @@ fun BlockView(
     block: Block,
     settings: ReaderSettings,
     palette: ReaderPalette,
-    searchQuery: String? = null,
+    searchRanges: List<IntRange> = emptyList(),
+    cellSearchRanges: List<List<List<IntRange>>> = emptyList(),
+    isSearchMatch: Boolean = false,
     activeMatchRawStart: Int? = null,
     onInspectEquation: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    // Resolved once per BlockView composition so every inline span measures with the same
+    // engine and font, instead of the old per-span estimated sizes.
+    val mathEngine = rememberMathLayoutEngine()
     var fallbackInspectedLatex by remember { mutableStateOf<String?>(null) }
     val effectiveOnInspectEquation: (String) -> Unit = onInspectEquation ?: { latex ->
         fallbackInspectedLatex = latex
@@ -87,16 +93,19 @@ fun BlockView(
                 inlineText = block.text,
                 fontSizeSp = settings.fontSizeSp,
                 palette = palette,
-                searchQuery = searchQuery,
+                searchRanges = searchRanges,
                 activeMatchRawStart = activeMatchRawStart,
-                onInspectEquation = effectiveOnInspectEquation
+                onInspectEquation = effectiveOnInspectEquation,
+                    engine = mathEngine
             )
-            Text(
-                text = rich.annotatedString,
-                inlineContent = rich.inlineContent,
-                style = settings.bodyStyle(palette),
-                modifier = modifier.fillMaxWidth()
-            )
+            SelectionContainer {
+                Text(
+                    text = rich.annotatedString,
+                    inlineContent = rich.inlineContent,
+                    style = settings.bodyStyle(palette),
+                    modifier = modifier.fillMaxWidth()
+                )
+            }
         }
         is Heading -> {
             val headingStyle = settings.headingStyle(block.level, palette)
@@ -104,16 +113,19 @@ fun BlockView(
                 inlineText = block.text,
                 fontSizeSp = headingStyle.fontSize.value,
                 palette = palette,
-                searchQuery = searchQuery,
+                searchRanges = searchRanges,
                 activeMatchRawStart = activeMatchRawStart,
-                onInspectEquation = effectiveOnInspectEquation
+                onInspectEquation = effectiveOnInspectEquation,
+                    engine = mathEngine
             )
-            Text(
-                text = rich.annotatedString,
-                inlineContent = rich.inlineContent,
-                style = headingStyle,
-                modifier = modifier.fillMaxWidth()
-            )
+            SelectionContainer {
+                Text(
+                    text = rich.annotatedString,
+                    inlineContent = rich.inlineContent,
+                    style = headingStyle,
+                    modifier = modifier.fillMaxWidth()
+                )
+            }
         }
         is ListItem -> {
             val indentDp = (block.depth * 1.25f * settings.fontSizeSp).dp
@@ -122,9 +134,10 @@ fun BlockView(
                 inlineText = block.text,
                 fontSizeSp = settings.fontSizeSp,
                 palette = palette,
-                searchQuery = searchQuery,
+                searchRanges = searchRanges,
                 activeMatchRawStart = activeMatchRawStart,
-                onInspectEquation = effectiveOnInspectEquation
+                onInspectEquation = effectiveOnInspectEquation,
+                    engine = mathEngine
             )
 
             Row(
@@ -142,12 +155,14 @@ fun BlockView(
                 } else {
                     Spacer(modifier = Modifier.width(markerWidthDp))
                 }
-                Text(
-                    text = rich.annotatedString,
-                    inlineContent = rich.inlineContent,
-                    style = settings.bodyStyle(palette),
-                    modifier = Modifier.weight(1f)
-                )
+                SelectionContainer(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = rich.annotatedString,
+                        inlineContent = rich.inlineContent,
+                        style = settings.bodyStyle(palette),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
         is Quote -> {
@@ -156,9 +171,10 @@ fun BlockView(
                 inlineText = block.text,
                 fontSizeSp = settings.fontSizeSp,
                 palette = palette,
-                searchQuery = searchQuery,
+                searchRanges = searchRanges,
                 activeMatchRawStart = activeMatchRawStart,
-                onInspectEquation = effectiveOnInspectEquation
+                onInspectEquation = effectiveOnInspectEquation,
+                    engine = mathEngine
             )
             Row(
                 modifier = modifier
@@ -177,15 +193,17 @@ fun BlockView(
                         .background(palette.link.copy(alpha = 0.7f))
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = rich.annotatedString,
-                    inlineContent = rich.inlineContent,
-                    style = settings.bodyStyle(palette).copy(
-                        color = palette.text.copy(alpha = 0.88f),
-                        fontStyle = FontStyle.Italic
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
+                SelectionContainer(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = rich.annotatedString,
+                        inlineContent = rich.inlineContent,
+                        style = settings.bodyStyle(palette).copy(
+                            color = palette.text.copy(alpha = 0.88f),
+                            fontStyle = FontStyle.Italic
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
         is CodeBlock -> {
@@ -199,30 +217,21 @@ fun BlockView(
                 }
             }
 
-            val codeAnnotated = remember(block.code, searchQuery, activeMatchRawStart, palette) {
+            val codeAnnotated = remember(block.code, searchRanges, activeMatchRawStart, palette) {
                 buildAnnotatedString {
                     append(block.code)
-                    if (!searchQuery.isNullOrBlank()) {
-                        val q = searchQuery.trim()
-                        var pos = 0
-                        while (pos < block.code.length) {
-                            val found = block.code.indexOf(q, pos, ignoreCase = true)
-                            if (found == -1) break
-                            val end = found + q.length
-                            val isActive = activeMatchRawStart != null && found == activeMatchRawStart
-                            val bg = if (isActive) {
-                                if (palette.isDark) Color(0xFFD97706) else Color(0xFFFF9800)
-                            } else {
-                                if (palette.isDark) Color(0xFF6B4F1D) else Color(0xFFFFE082)
-                            }
-                            val fg = if (isActive) Color.White else if (palette.isDark) Color(0xFFFFF8E1) else Color(0xFF1A1A1A)
-                            addStyle(
-                                SpanStyle(background = bg, color = fg, fontWeight = FontWeight.Bold),
-                                found,
-                                end
-                            )
-                            pos = end
+                    for (range in searchRanges) {
+                        val found = range.first
+                        val end = range.last + 1
+                        if (found < 0 || end > block.code.length || end <= found) continue
+                        val isActive = activeMatchRawStart != null && found == activeMatchRawStart
+                        val bg = if (isActive) {
+                            if (palette.isDark) Color(0xFFD97706) else Color(0xFFFF9800)
+                        } else {
+                            if (palette.isDark) Color(0xFF6B4F1D) else Color(0xFFFFE082)
                         }
+                        val fg = if (isActive) Color.White else if (palette.isDark) Color(0xFFFFF8E1) else Color(0xFF1A1A1A)
+                        addStyle(SpanStyle(background = bg, color = fg, fontWeight = FontWeight.Bold), found, end)
                     }
                 }
             }
@@ -280,11 +289,7 @@ fun BlockView(
             }
         }
         is MathBlock -> {
-            val isMathMatch = !searchQuery.isNullOrBlank() && (
-                block.latex.contains(searchQuery.trim(), ignoreCase = true) ||
-                LatexParser.toReadablePlainText(block.latex).contains(searchQuery.trim(), ignoreCase = true)
-            )
-            val mathBorderModifier = if (isMathMatch) {
+            val mathBorderModifier = if (isSearchMatch) {
                 val isActive = activeMatchRawStart != null
                 modifier.border(
                     width = if (isActive) 2.dp else 1.5.dp,
@@ -331,9 +336,10 @@ fun BlockView(
                                 inlineText = cell,
                                 fontSizeSp = (settings.fontSizeSp * 0.92f).coerceAtLeast(13f),
                                 palette = palette,
-                                searchQuery = searchQuery,
+                                searchRanges = cellSearchRanges.getOrNull(rowIndex)?.getOrNull(cellIndex).orEmpty(),
                                 activeMatchRawStart = null,
-                                onInspectEquation = effectiveOnInspectEquation
+                                onInspectEquation = effectiveOnInspectEquation,
+                    engine = mathEngine
                             )
 
                             Row(

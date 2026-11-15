@@ -69,6 +69,10 @@ import app.verso.core.latex.AccentKind
 import app.verso.core.latex.LatexParser
 import app.verso.core.latex.MathFontStyle
 import app.verso.core.latex.MathNode
+import app.verso.core.math.MathClassClassifier
+import app.verso.core.math.MathSpacing
+import app.verso.core.math.ScriptSizeLadder
+import app.verso.core.math.MathStyleLevel
 import app.verso.core.latex.MatrixEnvType
 import app.verso.core.latex.SymbolCategory
 import app.verso.core.store.ReaderSettings
@@ -520,16 +524,33 @@ fun MathNodeView(
     fontStyleOverride: MathFontStyle? = null
 ) {
     val clampedSize = fontSizeSp.coerceAtLeast(10f)
+    // Glyphs come from the bundled OpenType math face; the ambient default keeps
+    // previews and tests working without an asset context.
+    val mathFamily = LocalMathFontFamily.current ?: FontFamily.Serif
 
     when (node) {
         is MathNode.Row -> {
             if (node.children.isEmpty()) return
+            // TeX spacing is decided between neighbouring atoms, so it has to be applied
+            // here where both sides are known. Doing it per-symbol (as the previous flat
+            // 0.16em padding did) gives every operator the same gap regardless of whether
+            // it is a binary operator, a relation or punctuation.
+            val classes = MathClassClassifier.resolveBinaries(
+                node.children.map { MathClassClassifier.classify(it) }
+            )
+            val level = if (isDisplay) MathStyleLevel.Display else MathStyleLevel.Text
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                for (child in node.children) {
+                for (index in node.children.indices) {
+                    if (index > 0) {
+                        val gap = MathSpacing.gapEm(classes[index - 1], classes[index], level)
+                        if (gap > 0f) {
+                            Spacer(modifier = Modifier.width((clampedSize * gap).dp))
+                        }
+                    }
                     MathNodeView(
-                        node = child,
+                        node = node.children[index],
                         fontSizeSp = clampedSize,
                         color = color,
                         palette = palette,
@@ -545,7 +566,7 @@ fun MathNodeView(
             val family = when (fontStyleOverride) {
                 MathFontStyle.MONOSPACE -> FontFamily.Monospace
                 MathFontStyle.SANS_SERIF -> FontFamily.SansSerif
-                else -> FontFamily.Serif
+                else -> mathFamily
             }
             val weight = if (fontStyleOverride == MathFontStyle.BOLD) {
                 FontWeight.Bold
@@ -558,11 +579,10 @@ fun MathNodeView(
                 else -> if (node.category == SymbolCategory.VARIABLE) FontStyle.Italic else FontStyle.Normal
             }
 
-            val horizontalPad = when (node.category) {
-                SymbolCategory.OPERATOR -> (clampedSize * 0.16f).dp
-                else -> 0.dp
-            }
-            val endPad = if (node.category == SymbolCategory.FUNCTION) (clampedSize * 0.10f).dp else 0.dp
+            // No horizontal padding here: inter-atom space is applied by the enclosing Row
+            // from the TeX spacing table (see MathSpacing).
+            val horizontalPad = 0.dp
+            val endPad = 0.dp
 
             Text(
                 text = node.text,
@@ -588,7 +608,7 @@ fun MathNodeView(
                     style = TextStyle(
                         fontSize = clampedSize.sp,
                         lineHeight = (clampedSize * 1.1f).sp,
-                        fontFamily = FontFamily.Serif,
+                        fontFamily = mathFamily,
                         fontWeight = FontWeight.Normal,
                         color = color
                     ),
@@ -606,7 +626,7 @@ fun MathNodeView(
                     style = TextStyle(
                         fontSize = (clampedSize * scale).sp,
                         lineHeight = (clampedSize * scale * 1.05f).sp,
-                        fontFamily = FontFamily.Serif,
+                        fontFamily = mathFamily,
                         fontStyle = if (node.isIntegral) FontStyle.Italic else FontStyle.Normal,
                         color = color
                     ),
@@ -685,7 +705,10 @@ fun MathNodeView(
         }
 
         is MathNode.SubSup -> {
-            val scriptSize = (clampedSize * 0.68f).coerceAtLeast(9.5f)
+            // TeX drops to the next physical size rather than multiplying by a ratio.
+            // Verified against pdflatex output: at a 12pt base the superscript is set in
+            // the 8pt face (ratio 0.667), not 0.68 of the base with an arbitrary 9.5sp floor.
+            val scriptSize = ScriptSizeLadder.scriptSizePt(clampedSize, MathStyleLevel.Script)
             if (node.limitsUnderOver && isDisplay) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,

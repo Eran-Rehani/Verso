@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -32,6 +33,7 @@ import app.verso.core.latex.SymbolCategory
 import app.verso.core.model.InlineText
 import app.verso.core.model.Span
 import app.verso.core.model.SpanKind
+import app.verso.core.store.ThemeChoice
 import kotlin.math.max
 
 data class RichInlineRenderResult(
@@ -44,21 +46,47 @@ fun rememberRichInlineText(
     inlineText: InlineText,
     fontSizeSp: Float,
     palette: ReaderPalette,
-    searchQuery: String? = null,
+    searchRanges: List<IntRange> = emptyList(),
     activeMatchRawStart: Int? = null,
-    onInspectEquation: ((String) -> Unit)? = null
+    onInspectEquation: ((String) -> Unit)? = null,
+    engine: app.verso.core.math.MathLayoutEngine? = null
 ): RichInlineRenderResult {
-    return remember(inlineText, fontSizeSp, palette, searchQuery, activeMatchRawStart, onInspectEquation) {
+    return remember(inlineText, fontSizeSp, palette, searchRanges, activeMatchRawStart, onInspectEquation, engine) {
         buildRichInlineResult(
             inlineText = inlineText,
             fontSizeSp = fontSizeSp,
             palette = palette,
-            searchQuery = searchQuery,
+            searchRanges = searchRanges,
             activeMatchRawStart = activeMatchRawStart,
-            onInspectEquation = onInspectEquation
+            onInspectEquation = onInspectEquation,
+            engine = engine
         )
     }
 }
+
+/**
+ * Build the inline layout engine once per composition, reading the bundled font's MATH
+ * table. Returns null when the font is unavailable, in which case inline math falls back to
+ * estimated sizes rather than throwing mid-composition.
+ */
+@Composable
+fun rememberMathLayoutEngine(): app.verso.core.math.MathLayoutEngine? {
+    val context = LocalContext.current
+    val choice = LocalMathFontChoice.current
+    return remember(context, choice) {
+        runCatching {
+            app.verso.core.math.MathLayoutEngine(
+                metrics = app.verso.core.math.MathMetrics.forFont(
+                    MathTypeface.readFontBytes(context, choice),
+                ),
+                glyphs = PaintGlyphMetricsProvider(MathTypeface.typeface(context, choice)),
+            )
+        }.getOrNull()
+    }
+}
+
+internal fun renderedInlineTextForSearch(inlineText: InlineText): String =
+    buildRichInlineResult(inlineText, 18f, paletteFor(ThemeChoice.Light, false)).annotatedString.text
 
 fun InlineText.toAnnotatedString(palette: ReaderPalette): AnnotatedString {
     return buildRichInlineResult(this, fontSizeSp = 18f, palette = palette, allow2DInlineWidgets = false).annotatedString
@@ -69,9 +97,10 @@ private fun buildRichInlineResult(
     fontSizeSp: Float,
     palette: ReaderPalette,
     allow2DInlineWidgets: Boolean = true,
-    searchQuery: String? = null,
+    searchRanges: List<IntRange> = emptyList(),
     activeMatchRawStart: Int? = null,
-    onInspectEquation: ((String) -> Unit)? = null
+    onInspectEquation: ((String) -> Unit)? = null,
+    engine: app.verso.core.math.MathLayoutEngine? = null
 ): RichInlineRenderResult {
     val raw = inlineText.text
     val spans = inlineText.spans
@@ -86,10 +115,9 @@ private fun buildRichInlineResult(
             append(raw)
             applyNonMathSpans(raw.length, spans, palette)
             applySearchHighlights(
-                displayText = raw,
                 rawText = raw,
                 indexMap = null,
-                searchQuery = searchQuery,
+                searchRanges = searchRanges,
                 activeMatchRawStart = activeMatchRawStart,
                 palette = palette
             )
@@ -121,50 +149,50 @@ private fun buildRichInlineResult(
             val latex = raw.substring(s, e)
             val parsedNode = LatexParser.parseEquation(latex).root
 
-            val estimatedW = if (allow2DInlineWidgets && contains2DConstruct(parsedNode)) {
-                estimateWidthEm(parsedNode)
-            } else -1f
+            // M4.3: EVERY math span is laid out by the engine-backed widget.
+            //
+            // The previous code sent most inline math down `appendMathNodeInline`, which
+            // flattened scripts into a baseline shift and injected U+2009 around operators.
+            // That produced text like "ax2 + bx" instead of typeset math, and it meant the
+            // same expression looked different depending on whether its paragraph happened to
+            // contain a fraction. Both paths existed; only the widget path was correct.
+            val widgetId = "verso_inline_math_${widgetCounter++}_$s"
+            val measured = measureInlineMath(parsedNode, fontSizeSp, engine)
+            val widthEm = measured.widthEm.coerceAtLeast(0.35f)
+            val heightEm = measured.totalHeightEm.coerceAtLeast(1.0f)
 
-            val use2DWidget = estimatedW in 0f..13.5f
-
-            if (use2DWidget) {
-                val widgetId = "verso_inline_math_${widgetCounter++}_$s"
-                val widthEm = (estimatedW + 0.25f).coerceIn(1.1f, 14f)
-                val heightEm = estimateHeightEm(parsedNode).coerceIn(1.3f, 3.0f)
-
-                appendInlineContent(id = widgetId, alternateText = LatexParser.toReadablePlainText(latex).ifBlank { latex })
-                inlineContentMap[widgetId] = InlineTextContent(
-                    placeholder = Placeholder(
-                        width = widthEm.em,
-                        height = heightEm.em,
-                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                    )
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .then(
-                                if (onInspectEquation != null) {
-                                    Modifier.clickable { onInspectEquation(latex) }
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .testTag("inline_math_widget_$s")
-                    ) {
-                        MathNodeView(
-                            node = parsedNode,
-                            fontSizeSp = fontSizeSp * 0.96f,
-                            color = palette.text,
-                            palette = palette,
-                            isDisplay = false,
-                            isTopLevel = false
+            appendInlineContent(id = widgetId, alternateText = LatexParser.toReadablePlainText(latex).ifBlank { latex })
+            inlineContentMap[widgetId] = InlineTextContent(
+                placeholder = Placeholder(
+                    width = widthEm.em,
+                    height = heightEm.em,
+                    // Centring keeps the math's optical centre on the line's centre, which is
+                    // closer to TeX's baseline alignment than TOX-aligning to the text top.
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                )
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (onInspectEquation != null) {
+                                Modifier.clickable { onInspectEquation(latex) }
+                            } else {
+                                Modifier
+                            }
                         )
-                    }
+                        .testTag("inline_math_widget_$s")
+                ) {
+                    MathNodeView(
+                        node = parsedNode,
+                        fontSizeSp = fontSizeSp * 0.96f,
+                        color = palette.text,
+                        palette = palette,
+                        isDisplay = false,
+                        isTopLevel = false
+                    )
                 }
-            } else {
-                appendMathNodeInline(parsedNode, palette, scale = 1f, baselineShift = null, styleOverride = null)
             }
 
             val mathEndInOut = this.length
@@ -172,11 +200,10 @@ private fun buildRichInlineResult(
                 addLink(
                     LinkAnnotation.Clickable(
                         tag = "inline_math_$s",
-                        styles = TextLinkStyles(
-                            style = SpanStyle(
-                                background = palette.codeBackground.copy(alpha = 0.35f)
-                            )
-                        ),
+                        // No background tint: inline math should read as typeset math, not as
+                        // a highlighted interactive element. The tap-to-inspect behaviour is
+                        // retained through the clickable annotation itself.
+                        styles = TextLinkStyles(),
                         linkInteractionListener = {
                             onInspectEquation(latex)
                         }
@@ -207,10 +234,9 @@ private fun buildRichInlineResult(
         }
         applyNonMathSpans(this.length, nonMathSpans, palette)
         applySearchHighlights(
-            displayText = this.toString(),
             rawText = raw,
             indexMap = indexMap,
-            searchQuery = searchQuery,
+            searchRanges = searchRanges,
             activeMatchRawStart = activeMatchRawStart,
             palette = palette
         )
@@ -220,23 +246,16 @@ private fun buildRichInlineResult(
 }
 
 private fun AnnotatedString.Builder.applySearchHighlights(
-    displayText: String,
     rawText: String,
     indexMap: IntArray?,
-    searchQuery: String?,
+    searchRanges: List<IntRange>,
     activeMatchRawStart: Int?,
     palette: ReaderPalette
 ) {
-    if (searchQuery.isNullOrBlank()) return
-    val q = searchQuery.trim()
-    if (q.isEmpty()) return
-
-    var searchPos = 0
-    val qLen = q.length
-    while (searchPos < displayText.length) {
-        val found = displayText.indexOf(q, searchPos, ignoreCase = true)
-        if (found == -1) break
-        val end = found + qLen
+    for (range in searchRanges) {
+        val found = range.first
+        val end = range.last + 1
+        if (found < 0 || end > length || end <= found) continue
 
         val isActive = if (activeMatchRawStart != null) {
             val mappedActiveStart = if (indexMap != null) {
@@ -263,7 +282,6 @@ private fun AnnotatedString.Builder.applySearchHighlights(
             found,
             end
         )
-        searchPos = end
     }
 }
 
@@ -320,201 +338,6 @@ private fun AnnotatedString.Builder.applyNonMathSpans(
             }
         }
     }
-}
-
-private fun AnnotatedString.Builder.appendMathNodeInline(
-    node: MathNode,
-    palette: ReaderPalette,
-    scale: Float,
-    baselineShift: BaselineShift?,
-    styleOverride: MathFontStyle?
-) {
-    when (node) {
-        is MathNode.Row -> {
-            for (child in node.children) {
-                appendMathNodeInline(child, palette, scale, baselineShift, styleOverride)
-            }
-        }
-        is MathNode.Symbol -> {
-            val isItalic = when (styleOverride) {
-                MathFontStyle.ROMAN, MathFontStyle.MONOSPACE, MathFontStyle.SANS_SERIF -> false
-                MathFontStyle.ITALIC -> true
-                else -> node.category == SymbolCategory.VARIABLE
-            }
-            val family = when (styleOverride) {
-                MathFontStyle.MONOSPACE -> FontFamily.Monospace
-                MathFontStyle.SANS_SERIF -> FontFamily.SansSerif
-                else -> FontFamily.Serif
-            }
-            val weight = if (styleOverride == MathFontStyle.BOLD) FontWeight.Bold else FontWeight.Normal
-
-            val spanStyle = SpanStyle(
-                fontFamily = family,
-                fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
-                fontWeight = weight,
-                fontSize = if (scale != 1f) scale.em else androidx.compose.ui.unit.TextUnit.Unspecified,
-                baselineShift = baselineShift
-            )
-
-            pushStyle(spanStyle)
-            when (node.category) {
-                SymbolCategory.OPERATOR -> append("\u2009${node.text}\u2009")
-                SymbolCategory.FUNCTION -> append("${node.text}\u2009")
-                else -> append(node.text)
-            }
-            pop()
-        }
-        is MathNode.BigOp -> {
-            pushStyle(
-                SpanStyle(
-                    fontFamily = FontFamily.Serif,
-                    fontStyle = if (node.isIntegral) FontStyle.Italic else FontStyle.Normal,
-                    fontSize = if (node.isLimitWord) scale.em else (scale * 1.15f).em,
-                    baselineShift = baselineShift
-                )
-            )
-            append(node.symbol)
-            pop()
-        }
-        is MathNode.Fraction -> {
-            val subScale = (scale * 0.78f).coerceAtLeast(0.6f)
-            if (node.hasBar) {
-                appendMathNodeInline(
-                    node.numerator,
-                    palette,
-                    scale = subScale,
-                    baselineShift = BaselineShift(0.28f),
-                    styleOverride = styleOverride
-                )
-                pushStyle(SpanStyle(fontFamily = FontFamily.Serif))
-                append("⁄")
-                pop()
-                appendMathNodeInline(
-                    node.denominator,
-                    palette,
-                    scale = subScale,
-                    baselineShift = BaselineShift(-0.16f),
-                    styleOverride = styleOverride
-                )
-            } else {
-                append("(")
-                appendMathNodeInline(node.numerator, palette, subScale, BaselineShift(0.22f), styleOverride)
-                append(" ")
-                appendMathNodeInline(node.denominator, palette, subScale, BaselineShift(-0.14f), styleOverride)
-                append(")")
-            }
-        }
-        is MathNode.Sqrt -> {
-            if (node.degree != null) {
-                appendMathNodeInline(
-                    node.degree,
-                    palette,
-                    scale = (scale * 0.65f).coerceAtLeast(0.55f),
-                    baselineShift = BaselineShift(0.35f),
-                    styleOverride = styleOverride
-                )
-            }
-            pushStyle(
-                SpanStyle(
-                    fontFamily = FontFamily.Serif,
-                    fontSize = if (scale != 1f) scale.em else androidx.compose.ui.unit.TextUnit.Unspecified,
-                    baselineShift = baselineShift
-                )
-            )
-            append("√")
-            pop()
-            val needsParens = node.radicand is MathNode.Row && node.radicand.children.size > 1
-            if (needsParens) append("(")
-            appendMathNodeInline(node.radicand, palette, scale, baselineShift, styleOverride)
-            if (needsParens) append(")")
-        }
-        is MathNode.SubSup -> {
-            appendMathNodeInline(node.base, palette, scale, baselineShift, styleOverride)
-            val scriptScale = (scale * 0.74f).coerceAtLeast(0.58f)
-            if (node.subscript != null) {
-                val subShift = BaselineShift((baselineShift?.multiplier ?: 0f) - 0.26f)
-                appendMathNodeInline(node.subscript, palette, scriptScale, subShift, styleOverride)
-            }
-            if (node.superscript != null) {
-                val supShift = BaselineShift((baselineShift?.multiplier ?: 0f) + 0.36f)
-                appendMathNodeInline(node.superscript, palette, scriptScale, supShift, styleOverride)
-            }
-        }
-        is MathNode.Delimited -> {
-            pushStyle(SpanStyle(fontFamily = FontFamily.Serif, baselineShift = baselineShift))
-            if (node.left.isNotEmpty()) append(node.left)
-            pop()
-            appendMathNodeInline(node.content, palette, scale, baselineShift, styleOverride)
-            pushStyle(SpanStyle(fontFamily = FontFamily.Serif, baselineShift = baselineShift))
-            if (node.right.isNotEmpty()) append(node.right)
-            pop()
-        }
-        is MathNode.Accent -> {
-            appendMathNodeInline(node.base, palette, scale, baselineShift, styleOverride)
-            val combining = when (node.kind) {
-                AccentKind.HAT, AccentKind.WIDE_HAT -> "\u0302"
-                AccentKind.BAR, AccentKind.OVERLINE -> "\u0304"
-                AccentKind.UNDERLINE -> "\u0332"
-                AccentKind.VEC, AccentKind.OVER_RIGHT_ARROW -> "\u20D7"
-                AccentKind.OVER_LEFT_ARROW -> "\u20D6"
-                AccentKind.TILDE, AccentKind.WIDE_TILDE -> "\u0303"
-                AccentKind.DOT -> "\u0307"
-                AccentKind.DDOT -> "\u0308"
-                AccentKind.CHECK -> "\u030C"
-                AccentKind.BREVE -> "\u0306"
-                AccentKind.OVERBRACE, AccentKind.UNDERBRACE -> ""
-            }
-            if (combining.isNotEmpty()) {
-                append(combining)
-            }
-        }
-        is MathNode.Matrix -> {
-            node.rows.forEachIndexed { rIdx, row ->
-                row.forEachIndexed { cIdx, cell ->
-                    appendMathNodeInline(cell, palette, scale, baselineShift, styleOverride)
-                    if (cIdx < row.size - 1) append(", ")
-                }
-                if (rIdx < node.rows.size - 1) append("; ")
-            }
-        }
-        is MathNode.Styled -> {
-            appendMathNodeInline(node.content, palette, scale, baselineShift, node.style)
-        }
-        is MathNode.Boxed -> {
-            append("[")
-            appendMathNodeInline(node.content, palette, scale, baselineShift, styleOverride)
-            append("]")
-        }
-        is MathNode.Space -> {
-            if (node.em >= 0.15f) append("\u2009")
-        }
-    }
-}
-
-private val TWO_D_ACCENT_KINDS = java.util.EnumSet.of(
-    AccentKind.OVERLINE,
-    AccentKind.UNDERLINE,
-    AccentKind.WIDE_HAT,
-    AccentKind.WIDE_TILDE,
-    AccentKind.OVER_RIGHT_ARROW,
-    AccentKind.OVER_LEFT_ARROW
-)
-
-private fun contains2DConstruct(node: MathNode): Boolean = when (node) {
-    is MathNode.Fraction -> true
-    is MathNode.Sqrt -> true
-    is MathNode.Matrix -> true
-    is MathNode.Boxed -> true
-    is MathNode.Accent -> node.kind in TWO_D_ACCENT_KINDS
-    is MathNode.Delimited -> contains2DConstruct(node.content)
-    is MathNode.SubSup -> node.limitsUnderOver ||
-            (node.subscript != null && node.superscript != null) ||
-            contains2DConstruct(node.base) ||
-            (node.subscript != null && contains2DConstruct(node.subscript)) ||
-            (node.superscript != null && contains2DConstruct(node.superscript))
-    is MathNode.Row -> node.children.any { contains2DConstruct(it) }
-    is MathNode.Styled -> contains2DConstruct(node.content)
-    is MathNode.Symbol, is MathNode.BigOp, is MathNode.Space -> false
 }
 
 private fun estimateWidthEm(node: MathNode): Float = when (node) {
@@ -587,4 +410,32 @@ private fun estimateHeightEm(node: MathNode): Float = when (node) {
     is MathNode.Styled -> estimateHeightEm(node.content)
     is MathNode.Boxed -> estimateHeightEm(node.content) + 0.35f
     is MathNode.Space -> 1.0f
+}
+
+/**
+ * Measure inline math with the real layout engine, so the inline placeholder is sized from
+ * font advances and MATH-table constants rather than from the old `estimateWidthEm` guess.
+ *
+ * Returns a fallback box when the bundled font or its MATH table cannot be read, so a
+ * measurement failure degrades to a plausible size instead of throwing during composition.
+ */
+/**
+ * Measure inline math with the real layout engine, so the inline placeholder is sized from
+ * font advances and MATH-table constants rather than from the old `estimateWidthEm` guess.
+ *
+ * Falls back to the estimate when no engine is available (font missing, tests without an
+ * asset context) so composition never throws.
+ */
+private fun measureInlineMath(
+    node: MathNode,
+    fontSizeSp: Float,
+    engine: app.verso.core.math.MathLayoutEngine?,
+): app.verso.core.math.MeasuredBox {
+    val real = engine?.layout(node, app.verso.core.math.MathStyleLevel.Text)
+    if (real != null && real.widthEm > 0f) return real
+    return app.verso.core.math.MeasuredBox(
+        widthEm = estimateWidthEm(node),
+        heightEm = estimateHeightEm(node),
+        depthEm = 0f,
+    )
 }
