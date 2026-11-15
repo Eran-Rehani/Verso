@@ -1,0 +1,81 @@
+{
+  "case": "corpus-maxwell-jacobian",
+  "mode": "display",
+  "latex": "\\mathrm{d}^4y = \\left|\\det \\frac{\\partial y}{\\partial x}\\right| \\mathrm{d}^4x",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 94.765,
+  "pageHeight": 30.888,
+  "glyphs": [
+    {
+      "char": "d",
+      "xMin": 0.5,
+      "yMin": 10.0763,
+      "xMax": 7.0036,
+      "yMax": 20.7523
+    },
+    {
+      "char": "4",
+      "xMin": 7.004,
+      "yMin": 8.0046,
+      "xMax": 11.2385,
+      "yMax": 15.0422
+    },
+    {
+      "char": "y",
+      "xMin": 11.736,
+      "yMin": 10.1361,
+      "xMax": 17.4434,
+      "yMax": 20.7523
+    },
+    {
+      "char": "=",
+      "xMin": 21.1973,
+      "yMin": 10.0763,
+      "xMax": 30.3024,
+      "yMax": 20.7523
+    },
+    {
+      "char": "det",
+      "xMin": 36.94,
+      "yMin": 10.0763,
+      "xMax": 53.1991,
+      "yMax": 20.7523
+    },
+    {
+      "char": "∂x",
+      "xMin": 56.386,
+      "yMin": 18.3361,
+      "xMax": 69.8631,
+      "yMax": 28.9523
+    },
+    {
+      "char": "∂y",
+      "xMin": 56.644,
+      "yMin": 2.0481,
+      "xMax": 69.1766,
+      "yMax": 12.6643
+    },
+    {
+      "char": "d",
+      "xMin": 76.377,
+      "yMin": 10.0763,
+      "xMax": 82.8806,
+      "yMax": 20.7523
+    },
+    {
+      "char": "4",
+      "xMin": 82.881,
+      "yMin": 8.0046,
+      "xMax": 87.1155,
+      "yMax": 15.0422
+    },
+    {
+      "char": "x",
+      "xMin": 87.613,
+      "yMin": 10.1361,
+      "xMax": 94.2649,
+      "yMax": 20.7523
+    }
+  ]
+}

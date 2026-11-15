@@ -1,0 +1,39 @@
+{
+  "case": "frac",
+  "mode": "display",
+  "latex": "\\frac{a+b}{c}",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 28.931,
+  "pageHeight": 25.591,
+  "glyphs": [
+    {
+      "char": "a",
+      "xMin": 1.696,
+      "yMin": 0.5061,
+      "xMax": 7.841,
+      "yMax": 11.1223
+    },
+    {
+      "char": "+",
+      "xMin": 10.495,
+      "yMin": 0.4463,
+      "xMax": 19.6001,
+      "yMax": 11.1223
+    },
+    {
+      "char": "c",
+      "xMin": 11.947,
+      "yMin": 16.7941,
+      "xMax": 16.9849,
+      "yMax": 27.4103
+    },
+    {
+      "char": "b",
+      "xMin": 22.2542,
+      "yMin": 0.5061,
+      "xMax": 27.2311,
+      "yMax": 11.1223
+    }
+  ]
+}

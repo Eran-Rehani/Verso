@@ -1,0 +1,60 @@
+{
+  "case": "corpus-wave-vector",
+  "mode": "display",
+  "latex": "k^\\mu = \\eta^{\\mu\\nu}k_\\nu",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 56.58,
+  "pageHeight": 11.692,
+  "glyphs": [
+    {
+      "char": "k",
+      "xMin": 0.5,
+      "yMin": 0.5701,
+      "xMax": 6.5888,
+      "yMax": 11.1863
+    },
+    {
+      "char": "µ",
+      "xMin": 6.99,
+      "yMin": -1.6002,
+      "xMax": 12.0845,
+      "yMax": 5.4772
+    },
+    {
+      "char": "=",
+      "xMin": 15.903,
+      "yMin": 0.5103,
+      "xMax": 25.0081,
+      "yMax": 11.1863
+    },
+    {
+      "char": "η",
+      "xMin": 28.3316,
+      "yMin": 0.5701,
+      "xMax": 34.1072,
+      "yMax": 11.1863
+    },
+    {
+      "char": "µν",
+      "xMin": 34.533,
+      "yMin": -1.6002,
+      "xMax": 43.7903,
+      "yMax": 5.4772
+    },
+    {
+      "char": "k",
+      "xMin": 44.809,
+      "yMin": 0.5701,
+      "xMax": 50.8978,
+      "yMax": 11.1863
+    },
+    {
+      "char": "ν",
+      "xMin": 50.898,
+      "yMin": 5.1298,
+      "xMax": 55.0608,
+      "yMax": 12.2072
+    }
+  ]
+}

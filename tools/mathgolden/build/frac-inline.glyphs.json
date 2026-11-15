@@ -1,0 +1,25 @@
+{
+  "case": "frac",
+  "mode": "inline",
+  "latex": "\\frac{a+b}{c}",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 18.098,
+  "pageHeight": 15.365,
+  "glyphs": [
+    {
+      "char": "a+b",
+      "xMin": 1.696,
+      "yMin": 0.5038,
+      "xMax": 16.4032,
+      "yMax": 7.5812
+    },
+    {
+      "char": "c",
+      "xMin": 7.215,
+      "yMin": 9.3338,
+      "xMax": 10.8828,
+      "yMax": 16.4112
+    }
+  ]
+}

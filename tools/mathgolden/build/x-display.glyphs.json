@@ -1,0 +1,18 @@
+{
+  "case": "x",
+  "mode": "display",
+  "latex": "x",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 7.652,
+  "pageHeight": 6.147,
+  "glyphs": [
+    {
+      "char": "x",
+      "xMin": 0.5,
+      "yMin": -2.6499,
+      "xMax": 7.1519,
+      "yMax": 7.9663
+    }
+  ]
+}

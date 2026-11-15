@@ -1,0 +1,109 @@
+{
+  "case": "corpus-maxwell-wave",
+  "mode": "inline",
+  "latex": "\\nabla^2 \\mathbf{E} - \\frac{1}{c^2}\\frac{\\partial^2 \\mathbf{E}}{\\partial t^2} = 0",
+  "baseFontPt": 12,
+  "rasterDpi": 300,
+  "pageWidth": 88.816,
+  "pageHeight": 16.495,
+  "glyphs": [
+    {
+      "char": "∇",
+      "xMin": 0.5,
+      "yMin": 2.9056,
+      "xMax": 10.4623,
+      "yMax": 14.1913
+    },
+    {
+      "char": "2",
+      "xMin": 10.463,
+      "yMin": 2.0426,
+      "xMax": 14.6975,
+      "yMax": 9.0802
+    },
+    {
+      "char": "E",
+      "xMin": 15.195,
+      "yMin": 3.4555,
+      "xMax": 24.0227,
+      "yMax": 14.1913
+    },
+    {
+      "char": "−",
+      "xMin": 26.6768,
+      "yMin": 2.9056,
+      "xMax": 35.9755,
+      "yMax": 14.1913
+    },
+    {
+      "char": "c",
+      "xMin": 39.83,
+      "yMin": 10.4638,
+      "xMax": 43.4978,
+      "yMax": 17.5412
+    },
+    {
+      "char": "1",
+      "xMin": 41.623,
+      "yMin": 1.6736,
+      "xMax": 45.8575,
+      "yMax": 8.7112
+    },
+    {
+      "char": "2",
+      "xMin": 43.498,
+      "yMin": 9.6074,
+      "xMax": 47.1509,
+      "yMax": 14.8857
+    },
+    {
+      "char": "∂",
+      "xMin": 50.04,
+      "yMin": 1.6338,
+      "xMax": 54.5009,
+      "yMax": 8.7112
+    },
+    {
+      "char": "∂t",
+      "xMin": 51.71,
+      "yMin": 10.4638,
+      "xMax": 59.6992,
+      "yMax": 17.5412
+    },
+    {
+      "char": "2",
+      "xMin": 54.972,
+      "yMin": 0.2334,
+      "xMax": 58.6249,
+      "yMax": 5.5117
+    },
+    {
+      "char": "E",
+      "xMin": 59.123,
+      "yMin": 1.5461,
+      "xMax": 65.5206,
+      "yMax": 8.7112
+    },
+    {
+      "char": "2",
+      "xMin": 59.7,
+      "yMin": 9.6074,
+      "xMax": 63.3529,
+      "yMax": 14.8857
+    },
+    {
+      "char": "=",
+      "xMin": 70.037,
+      "yMin": 3.5153,
+      "xMax": 79.1421,
+      "yMax": 14.1913
+    },
+    {
+      "char": "0",
+      "xMin": 82.4656,
+      "yMin": 3.5153,
+      "xMax": 88.3189,
+      "yMax": 14.1913
+    }
+  ]
+}
