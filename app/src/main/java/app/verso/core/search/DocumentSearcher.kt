@@ -47,7 +47,8 @@ object DocumentSearcher {
     fun search(
         document: Document,
         query: String,
-        tocEntries: List<app.verso.core.toc.TocEntry> = TocExtractor.extract(document)
+        tocEntries: List<app.verso.core.toc.TocEntry> = TocExtractor.extract(document),
+        checkCancelled: () -> Unit = {}
     ): List<DocumentSearchMatch> {
         val trimmedQuery = query.trim()
         if (trimmedQuery.isEmpty()) return emptyList()
@@ -69,17 +70,19 @@ object DocumentSearcher {
         var globalMatchId = 0
 
         for (blockIdx in blocks.indices) {
+            checkCancelled()
             val block = blocks[blockIdx]
             val textToSearch = getSearchableText(block)
             if (textToSearch.isEmpty()) continue
 
-            val matchRanges = findAllOccurrences(textToSearch, trimmedQuery)
+            val matchRanges = findAllOccurrences(textToSearch, trimmedQuery, checkCancelled)
             if (matchRanges.isEmpty()) continue
 
             val section = findSectionTitle(blockIdx)
             val progress = progressFor(blockIdx)
 
             for (range in matchRanges) {
+                checkCancelled()
                 val start = range.first
                 val end = range.last + 1
 
@@ -130,12 +133,13 @@ object DocumentSearcher {
         is Divider -> ""
     }
 
-    private fun findAllOccurrences(source: String, query: String): List<IntRange> {
+    private fun findAllOccurrences(source: String, query: String, checkCancelled: () -> Unit = {}): List<IntRange> {
         if (query.isEmpty() || source.isEmpty()) return emptyList()
         val list = mutableListOf<IntRange>()
         var startIndex = 0
         val queryLen = query.length
         while (startIndex < source.length) {
+            checkCancelled()
             val found = source.indexOf(query, startIndex, ignoreCase = true)
             if (found == -1) break
             list.add(found until (found + queryLen))

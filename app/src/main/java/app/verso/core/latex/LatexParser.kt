@@ -533,7 +533,13 @@ object LatexParser {
                 }
                 return src.substring(start, (pos - 1).coerceAtLeast(start))
             }
-            return src[pos++].toString()
+            return consumeCodePoint()
+        }
+
+        private fun consumeCodePoint(): String {
+            val start = pos
+            pos += Character.charCount(src.codePointAt(pos))
+            return src.substring(start, pos)
         }
 
         private fun parseNextAtomWithSubSup(): MathNode? {
@@ -642,23 +648,22 @@ object LatexParser {
             }
 
             // Number run (digits and decimal point inside numbers)
-            if (ch.isDigit()) {
+            if (Character.isDigit(src.codePointAt(pos))) {
                 val start = pos
-                while (pos < len && (src[pos].isDigit() || (src[pos] == '.' && pos + 1 < len && src[pos + 1].isDigit()))) {
-                    pos++
+                while (pos < len && (Character.isDigit(src.codePointAt(pos)) ||
+                        (src[pos] == '.' && pos + 1 < len && Character.isDigit(src.codePointAt(pos + 1))))) {
+                    pos += Character.charCount(src.codePointAt(pos))
                 }
                 return MathNode.Symbol(src.substring(start, pos), SymbolCategory.NUMBER)
             }
 
-            // Single ASCII or Greek letter -> italic math variable
-            if (ch.isLetter()) {
-                pos++
-                val s = ch.toString()
-                return MathNode.Symbol(s, SymbolCategory.VARIABLE)
+            // Single letter -> italic math variable
+            if (Character.isLetter(src.codePointAt(pos))) {
+                return MathNode.Symbol(consumeCodePoint(), SymbolCategory.VARIABLE)
             }
 
             // Basic operators, relations & Unicode symbols
-            pos++
+            val symbol = consumeCodePoint()
             return when (ch) {
                 '+' -> MathNode.Symbol("+", SymbolCategory.OPERATOR)
                 '-', '−', '–', '—' -> MathNode.Symbol("−", SymbolCategory.OPERATOR)
@@ -739,7 +744,7 @@ object LatexParser {
                 '~' -> MathNode.Space(0.33f)
                 ',', ';', '!', '?', '.', '(', ')', '[', ']', '|' ->
                     MathNode.Symbol(ch.toString(), SymbolCategory.PUNCTUATION)
-                else -> MathNode.Symbol(ch.toString(), SymbolCategory.TEXT)
+                else -> MathNode.Symbol(symbol, SymbolCategory.TEXT)
             }
         }
 
@@ -750,7 +755,7 @@ object LatexParser {
             // Check single non-letter escaped characters: \, \; \: \! \{ \} \$ \% \& \# \_ \| \
             val first = src[pos]
             if (!first.isLetter()) {
-                pos++
+                val escaped = consumeCodePoint()
                 return when (first) {
                     ',' -> MathNode.Space(0.17f)
                     ':' -> MathNode.Space(0.22f)
@@ -759,7 +764,7 @@ object LatexParser {
                     ' ' -> MathNode.Space(0.33f)
                     '|' -> MathNode.Symbol("‖", SymbolCategory.PUNCTUATION)
                     '{', '}', '$', '%', '&', '#', '_' -> MathNode.Symbol(first.toString(), SymbolCategory.PUNCTUATION)
-                    else -> MathNode.Symbol(first.toString(), SymbolCategory.TEXT)
+                    else -> MathNode.Symbol(escaped, SymbolCategory.TEXT)
                 }
             }
 
@@ -1117,12 +1122,13 @@ object LatexParser {
                 pos++
                 if (pos >= len) return ""
                 if (!src[pos].isLetter()) {
-                    val c = src[pos++]
+                    val c = src[pos]
+                    val delimiter = consumeCodePoint()
                     return when (c) {
                         '{' -> "{"
                         '}' -> "}"
                         '|' -> "‖"
-                        else -> c.toString()
+                        else -> delimiter
                     }
                 }
                 val start = pos
@@ -1150,8 +1156,8 @@ object LatexParser {
                     else -> LatexSymbolMap.MISC_SYMBOLS[name] ?: ""
                 }
             }
-            pos++
-            return if (ch == '.') "" else ch.toString()
+            val delimiter = consumeCodePoint()
+            return if (ch == '.') "" else delimiter
         }
 
         private fun simplifyRow(nodes: List<MathNode>): MathNode {
