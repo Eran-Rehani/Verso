@@ -280,12 +280,6 @@ open class MainActivity : ComponentActivity() {
                                             DocumentSource.fromText(text) { context.ensureActive() }
                                         }
                                     },
-                                    onLoadSample = {
-                                        viewModel.loadSampleDocument()
-                                    },
-                                    onSelectSample = { spec ->
-                                        viewModel.loadSample(spec)
-                                    },
                                     onNavigateToLibrary = { viewModel.selectTab(MainTab.Library) },
                                     modifier = Modifier.padding(innerPadding)
                                 )

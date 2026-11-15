@@ -44,8 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.verso.core.store.RecentEntry
 import app.verso.core.store.progress
-import app.verso.reader.sample.SampleDocumentSpec
-import app.verso.reader.sample.SampleDocuments
 import app.verso.reader.ui.reader.ReaderPalette
 
 @Composable
@@ -56,9 +54,6 @@ fun HomeScreen(
     onDelete: (String) -> Unit,
     onOpenFile: () -> Unit,
     onPaste: () -> Unit,
-    onLoadSample: (() -> Unit)? = null,
-    onSelectSample: ((SampleDocumentSpec) -> Unit)? = null,
-    samples: List<SampleDocumentSpec> = SampleDocuments.all,
     onNavigateToLibrary: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -138,49 +133,6 @@ fun HomeScreen(
                 }
             }
 
-            if (onLoadSample != null) {
-                OutlinedButton(
-                    onClick = onLoadSample,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp)
-                        .testTag("load_sample_button")
-                ) {
-                    Text(
-                        text = "Open LaTeX & TOC Sample",
-                        color = palette.link,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-
-            if (onSelectSample != null && samples.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Explore Sample Formats",
-                    color = palette.muted,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .testTag("sample_documents_row")
-                ) {
-                    samples.forEach { spec ->
-                        SampleDocumentCard(
-                            spec = spec,
-                            palette = palette,
-                            onClick = { onSelectSample(spec) }
-                        )
-                    }
-                }
-            }
-
             Spacer(modifier = Modifier.height(16.dp))
 
             if (recents.isEmpty()) {
@@ -193,7 +145,7 @@ fun HomeScreen(
                         .padding(horizontal = 16.dp)
                 ) {
                     Text(
-                        text = "Share text, a PDF or an EPUB to Verso, tap Open file, or pick a sample format above.",
+                        text = "Share text, a PDF or an EPUB to Verso, or tap Open file to add something to your library.",
                         color = palette.muted,
                         fontSize = 15.5.sp,
                         lineHeight = 23.sp,
@@ -253,58 +205,6 @@ fun HomeScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun SampleDocumentCard(
-    spec: SampleDocumentSpec,
-    palette: ReaderPalette,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .width(205.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(palette.codeBackground.copy(alpha = 0.65f))
-            .border(1.dp, palette.rule.copy(alpha = 0.75f), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .testTag("sample_card_${spec.id}")
-    ) {
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(palette.link.copy(alpha = 0.14f))
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-        ) {
-            Text(
-                text = spec.badge,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                color = palette.link
-            )
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = spec.title,
-            fontSize = 13.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = palette.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = spec.subtitle,
-            fontSize = 11.5.sp,
-            lineHeight = 15.sp,
-            color = palette.muted,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 

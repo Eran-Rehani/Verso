@@ -294,51 +294,46 @@ object MathProtector {
             return
         }
 
-        var currentIndex = 0
-        while (currentIndex < text.length) {
-            val openPos = text.indexOf(OPEN, currentIndex)
-            if (openPos == -1) {
-                val remText = text.substring(currentIndex)
-                val exp = expandPlaceholders(remText, emptyList(), mathList)
-                if (exp.text.isNotBlank()) {
-                    onParagraph(exp)
-                }
-                break
-            }
-
+        // Walk the text splitting only at *display* placeholders. Inline placeholders are
+        // part of the prose: they must not terminate a paragraph, or a sentence containing
+        // several inline equations becomes one paragraph per equation (a defect reproduced
+        // on a device). Everything between display blocks is expanded as a single InlineText
+        // so span offsets stay consistent with the running text.
+        var segmentStart = 0
+        var searchFrom = 0
+        while (searchFrom < text.length) {
+            val openPos = text.indexOf(OPEN, searchFrom)
+            if (openPos == -1) break
             val closePos = text.indexOf(CLOSE, openPos + 1)
-            if (closePos == -1) {
-                val remText = text.substring(currentIndex)
-                val exp = expandPlaceholders(remText, emptyList(), mathList)
-                if (exp.text.isNotBlank()) {
-                    onParagraph(exp)
-                }
-                break
-            }
+            if (closePos == -1) break
 
             val numStr = text.substring(openPos + 1, closePos)
             val mathIdx = numStr.toIntOrNull()
-            if (mathIdx != null && mathIdx in mathList.indices && mathList[mathIdx].display) {
-                // Emit preceding text
-                if (openPos > currentIndex) {
-                    val preText = text.substring(currentIndex, openPos)
-                    val exp = expandPlaceholders(preText, emptyList(), mathList)
-                    if (exp.text.isNotBlank()) {
-                        onParagraph(exp)
-                    }
-                }
-                // Emit display MathBlock
-                onMathBlock(mathList[mathIdx].latex)
-                currentIndex = closePos + 1
-            } else {
-                // Regular inline math or non-display math placeholder, advance to next
-                val nextChunkEnd = closePos + 1
-                val chunkText = text.substring(currentIndex, nextChunkEnd)
-                val exp = expandPlaceholders(chunkText, emptyList(), mathList)
+            if (mathIdx == null || mathIdx !in mathList.indices || !mathList[mathIdx].display) {
+                // Inline math: leave it inside the current prose segment and keep scanning.
+                searchFrom = closePos + 1
+                continue
+            }
+
+            // A display equation ends the current prose segment.
+            if (openPos > segmentStart) {
+                val preText = text.substring(segmentStart, openPos)
+                val exp = expandPlaceholders(preText, emptyList(), mathList)
                 if (exp.text.isNotBlank()) {
                     onParagraph(exp)
                 }
-                currentIndex = nextChunkEnd
+            }
+            onMathBlock(mathList[mathIdx].latex)
+            segmentStart = closePos + 1
+            searchFrom = segmentStart
+        }
+
+        // Trailing prose after the last display block (or the whole text if there was none).
+        if (segmentStart < text.length) {
+            val remText = text.substring(segmentStart)
+            val exp = expandPlaceholders(remText, emptyList(), mathList)
+            if (exp.text.isNotBlank()) {
+                onParagraph(exp)
             }
         }
     }

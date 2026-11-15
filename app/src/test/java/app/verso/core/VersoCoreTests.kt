@@ -449,7 +449,7 @@ class VersoCoreTests {
     @Test
     fun `all sample documents across md tex html and txt import and extract blocks cleanly`() = kotlinx.coroutines.runBlocking {
         val importer = DocumentImporter()
-        val samples = app.verso.reader.sample.SampleDocuments.all
+        val samples = app.verso.core.fixtures.SampleFixtures.all
         assertEquals(5, samples.size)
 
         // 1. Mathematical Physics Primer (.md)
